@@ -58,12 +58,28 @@ def probe(src: str | bytes) -> VideoInfo:
         )
 
 
+# A tail shorter than this (container rounding, a few frames) does not get its own sample.
+MIN_TAIL_S = 0.1
+
+
 def sample_times(duration_s: float, interval_s: float) -> list[float]:
-    """Sample at the middle of each interval so short clips still get a frame."""
-    if duration_s <= 0:
+    """One sample at the middle of each interval, including a final partial interval.
+
+    The clip is cut into [0, i), [i, 2i), ... The last piece may be shorter than the interval
+    (for example 3.9 s at 2 s -> [0, 2) and [2, 3.9)); it is sampled at its own middle, so the
+    end of the clip is covered and every sample stays strictly inside the clip. Tails shorter
+    than MIN_TAIL_S are folded into the previous interval.
+    """
+    if duration_s <= 0 or interval_s <= 0:
         return []
-    n = max(1, math.floor(duration_s / interval_s + 1e-9))
-    return [round(min(duration_s, (i + 0.5) * interval_s), 3) for i in range(n)]
+    full = math.floor(duration_s / interval_s + 1e-9)
+    tail = duration_s - full * interval_s
+    n = full + (1 if tail > MIN_TAIL_S or full == 0 else 0)
+    out = []
+    for i in range(n):
+        start, end = i * interval_s, min(duration_s, (i + 1) * interval_s)
+        out.append(round((start + end) / 2, 3))
+    return out
 
 
 def _encode_jpeg(frame: av.VideoFrame, width: int) -> bytes:

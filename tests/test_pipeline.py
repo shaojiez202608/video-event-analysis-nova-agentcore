@@ -31,8 +31,23 @@ def test_key_parsing_rejects_bad_keys(key):
 
 def test_sample_times():
     assert sample_times(10, 2) == [1.0, 3.0, 5.0, 7.0, 9.0]
-    assert sample_times(1, 4) == [1.0]  # short clips still get one frame
+    assert sample_times(1, 4) == [0.5]  # short clips still get one frame, inside the clip
     assert sample_times(0, 1) == []
+
+
+@pytest.mark.parametrize("duration,interval,expected", [
+    (3.9, 2.0, [1.0, 2.95]),          # tail [2, 3.9) used to be skipped
+    (7.9, 4.0, [2.0, 5.95]),
+    (10.05, 2.0, [1.0, 3.0, 5.0, 7.0, 9.0]),  # 0.05 s container rounding: no extra sample
+    (10.5, 2.0, [1.0, 3.0, 5.0, 7.0, 9.0, 10.25]),
+    (0.3, 2.0, [0.15]),
+])
+def test_sample_times_cover_tail(duration, interval, expected):
+    times = sample_times(duration, interval)
+    assert times == expected
+    assert all(0 < t < duration for t in times)
+    # every point of the clip is within one interval of a sample
+    assert duration - times[-1] <= interval
 
 
 def test_plan_segments_respects_image_cap():
@@ -192,3 +207,17 @@ def test_invalid_output_text_not_logged(synthetic_set, caplog, fault):
     assert "ZEBRA" not in caplog.text
     assert "ZEBRA" not in res["fallback_reason"]
     assert res["fallback_reason"] in ("schema: scene_description: maxLength", "schema: scene_type: enum")
+
+
+def test_sample_frames_reach_clip_tail(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not available")
+    path = tmp_path / "tail.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10:duration=3.9",
+                    "-pix_fmt", "yuv420p", str(path)], check=True)
+    frames = sample_frames(str(path), 2.0, width=64)
+    assert [f.t for f in frames] == sample_times(probe(str(path)).duration_s, 2.0)
+    assert len(frames) == 2 and frames[-1].t > 2.0
