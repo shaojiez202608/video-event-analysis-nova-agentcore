@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+cdk.out/
+build/
+node_modules/
+*.zip
+# Generated synthetic clips (regenerate with scripts/gen_synthetic.py)
+sample-data/eval/videos/
+# Local run outputs
+out/
+.DS_Store
+.env
+*.pem

@@ -1,0 +1,49 @@
+[project]
+name = "video-event-analysis-nova-agentcore"
+version = "0.1.0"
+description = "Structured camera-event analysis for short video clips with Amazon Nova and Amazon Bedrock AgentCore (prototype)"
+readme = "README.md"
+license = "MIT-0"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+# Runtime dependencies are also listed in src/agent/requirements.txt for arm64 packaging.
+runtime = [
+  "av>=17",
+  "jsonschema>=4.23",
+  "boto3>=1.43",
+  "bedrock-agentcore>=1.24",
+]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "pillow>=11",
+]
+infra = [
+  "aws-cdk-lib>=2.230",
+  "constructs>=10.4",
+  "cdk-nag>=2.37",
+]
+
+[tool.uv]
+package = false
+default-groups = ["runtime", "dev", "infra"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "src/agent", "src/functions/dispatcher", "infra", "."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+extend-exclude = ["cdk.out", "build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+"scripts/**" = ["S311", "S603", "S607"]
