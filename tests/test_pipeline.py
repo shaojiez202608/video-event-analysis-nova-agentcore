@@ -247,3 +247,24 @@ def test_call_budget_stops_retries(synthetic_set):
 def test_config_bounds(bad):
     with pytest.raises(ValueError):
         PipelineConfig(**bad).validate()
+
+
+def test_negative_control_is_reported_as_failing(synthetic_set):
+    from video_events.evaluation import NEGATIVE_CONTROL_MAX_F1, WrongVisionModel
+
+    good, _ = run_suite(str(synthetic_set / "manifest.json"), cfg(strategy="video"), MockVisionModel())
+    bad, per_clip = run_suite(str(synthetic_set / "manifest.json"), cfg(strategy="video"),
+                              WrongVisionModel(MockVisionModel()))
+    assert good["f1"] >= 0.8
+    assert bad["f1"] <= NEGATIVE_CONTROL_MAX_F1 and bad["scene_accuracy"] == 0.0
+    assert bad["no_event_clean_rate"] == 0.0  # empty clips get a false alarm
+    assert all(c["fp"] + c["fn"] > 0 for c in per_clip)
+
+
+def test_manifest_is_versioned():
+    import json
+    from pathlib import Path
+
+    m = json.loads((Path(__file__).resolve().parents[1] / "sample-data/eval/manifest.json").read_text())
+    assert m["version"] == "1.0" and len(m["clips"]) == 16
+    assert all("expected_events" in c for c in m["clips"])

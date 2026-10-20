@@ -124,3 +124,42 @@ def run_suite(manifest_path: str, cfg, model, only: list[str] | None = None, res
     summary = aggregate(scores, clips)
     summary.update(totals)
     return summary, per_clip
+
+
+# ---------------------------------------------------------------- negative control
+
+NEGATIVE_CONTROL_MAX_F1 = 0.2
+
+
+class WrongVisionModel:
+    """Deliberately wrong model for the negative control: wraps another model and, in every valid
+    response, swaps each event type for a different type of the same category, moves its time
+    range to the other end of the clip and reports scene type "unknown". The evaluation must
+    score this as a failure; if it does not, the scoring itself is broken."""
+
+    name = "negative-control"
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def analyze(self, req):
+        import json
+
+        from .taxonomy import EVENT_CATEGORIES
+
+        resp = self.inner.analyze(req)
+        doc = json.loads(resp.text)
+        dur = req.clip_duration_s
+        for ev in doc.get("events", []):
+            types = EVENT_CATEGORIES[ev["category"]]
+            ev["type"] = types[(types.index(ev["type"]) + 1) % len(types)]
+            length = max(0.5, ev["end_s"] - ev["start_s"])
+            start = dur - ev["end_s"] if ev["start_s"] > dur / 2 else max(0.0, dur - length)
+            ev["start_s"], ev["end_s"] = round(max(0.0, min(start, dur - length)), 2), round(min(dur, start + length), 2)
+        if not doc.get("events"):  # an empty clip gets a false alarm
+            doc["events"] = [{"category": "risk", "type": "fire_smoke", "start_s": 0.0, "end_s": min(dur, 2.0),
+                              "risk_level": "emergency", "confidence": "high", "location": "unknown",
+                              "subject": "fire_smoke", "description": "negative control"}]
+        doc["scene_type"] = "unknown"
+        resp.text = json.dumps(doc)
+        return resp

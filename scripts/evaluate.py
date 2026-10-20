@@ -13,9 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from video_events.config import load_config  # noqa: E402
-from video_events.evaluation import run_suite  # noqa: E402
+from video_events.evaluation import NEGATIVE_CONTROL_MAX_F1, WrongVisionModel, run_suite  # noqa: E402
 from video_events.models import MockVisionModel, make_model  # noqa: E402
 from video_events.prompts import SYNTHETIC_EVAL_HINT  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from guards import require_paid  # noqa: E402
 
 
 def main() -> None:
@@ -31,11 +34,18 @@ def main() -> None:
     ap.add_argument("--output-mode", choices=["tool", "text"])
     ap.add_argument("--results-dir", help="also write result JSON documents here")
     ap.add_argument("--out", help="write the JSON report here")
+    ap.add_argument("--min-f1", type=float, help="exit 1 if F1 is below this value (CI gate)")
+    ap.add_argument("--negative-control", action="store_true",
+                    help="score a deliberately wrong model; exit 1 unless the evaluation reports it as failing")
     args = ap.parse_args()
+    if args.mode == "bedrock":
+        require_paid("evaluate.py --mode bedrock")
     cfg = load_config(args.config).with_overrides(
         model_mode=args.mode, strategy=args.strategy, output_mode=args.output_mode,
         prompt_hint="" if args.no_hint else SYNTHETIC_EVAL_HINT, frame_interval_s=args.interval, segment_length_s=args.segment)
     model = make_model(cfg) if args.mode == "bedrock" else MockVisionModel()
+    if args.negative_control:
+        model = WrongVisionModel(model)
     summary, per_clip = run_suite(args.manifest, cfg, model, args.only, args.results_dir)
     report = {"mode": args.mode, "model": model.name, "strategy": cfg.strategy,
               "frame_interval_s": cfg.frame_interval_s, "segment_length_s": cfg.segment_length_s,
@@ -50,6 +60,16 @@ def main() -> None:
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if args.negative_control:
+        caught = summary["f1"] <= NEGATIVE_CONTROL_MAX_F1 and summary["scene_accuracy"] < 0.5 \
+            and summary["no_event_clean_rate"] < 0.5
+        print(f"negative control: f1={summary['f1']} scene_accuracy={summary['scene_accuracy']} "
+              f"no_event_clean_rate={summary['no_event_clean_rate']} -> "
+              + ("reported as failing (evaluation is sensitive)" if caught else "NOT caught: scoring is broken"))
+        sys.exit(0 if caught else 1)
+    if args.min_f1 is not None and summary["f1"] < args.min_f1:
+        print(f"F1 {summary['f1']} is below --min-f1 {args.min_f1}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
