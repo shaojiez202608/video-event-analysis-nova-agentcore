@@ -47,7 +47,8 @@ verify-cleanup: ## Read-only residual check; exits non-zero if anything is left
 
 scan-ci: ## Secret scan of the full history (gitleaks) and of the working tree (detect-secrets)
 	gitleaks git . --no-banner --redact
-	uvx detect-secrets scan --exclude-files '(\.venv|build|cdk\.out|out|uv\.lock|sample-data/eval/videos)/?' > /dev/null
+	uvx detect-secrets scan --exclude-files '(\.venv|build|cdk\.out|out|uv\.lock|sample-data/eval/videos|\.pytest_cache|\.ruff_cache)/' \
+	  | python3 -c 'import json,sys; r=json.load(sys.stdin)["results"]; print("detect-secrets findings:", len(r)); sys.exit(1 if r else 0)'
 
 scan: scan-ci ## Local scans: canary check, workflow lint, dependency audit
 	./scripts/secret_canary.sh
