@@ -94,10 +94,13 @@ class VideoEventStack(Stack):
 
         model_id = pipeline["model_id"]
         fm_id = foundation_model_id(model_id)
-        model_resources = [
-            f"arn:aws:bedrock:*::foundation-model/{fm_id}",
-            f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/{model_id}",
-        ]
+        if fm_id != model_id:  # cross-region inference profile: the model may run in any region of the profile
+            model_resources = [
+                f"arn:aws:bedrock:*::foundation-model/{fm_id}",
+                f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/{model_id}",
+            ]
+        else:  # on-demand model id: this region only
+            model_resources = [f"arn:aws:bedrock:{Aws.REGION}::foundation-model/{fm_id}"]
 
         agent_role = iam.Role(
             self, "AgentRole",
@@ -238,50 +241,75 @@ class VideoEventStack(Stack):
         CfnOutput(self, "PipelineConfigParam", value=config_param.parameter_name)
         CfnOutput(self, "DispatchFailureQueueUrl", value=failures.queue_url)
 
-        self._suppress(access_logs)
-        Validations.of(failures).acknowledge(Acknowledgment(
-            id="AwsSolutions::AwsSolutions-SQS3",
-            reason="This queue is itself the on-failure destination of the dispatcher Lambda; a further "
-                   "dead-letter queue behind it would only move the same messages again."))
+        self._acknowledge(access_logs=access_logs, failures=failures, agent_policy=agent_policy,
+                          fn_policy=fn_policy, dispatcher=dispatcher, agent_name=agent_name, model_id=model_id,
+                          fm_id=fm_id, media=media, lambda_mode=orchestrator == "lambda")
 
-    def _suppress(self, access_logs: s3.Bucket) -> None:
-        """cdk-nag v3 acknowledgements. Each is listed with its reason in SECURITY-NOTES.md."""
-        Validations.of(access_logs).acknowledge(Acknowledgment(
-            id="AwsSolutions::AwsSolutions-S1",
-            reason="This bucket is the server-access-log destination; logging it to itself would loop."))
-        iam5 = {
-            "Resource::arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:/aws/bedrock-agentcore/runtimes/*":
-                "AgentCore Runtime creates its log group with a generated runtime id; scope follows the "
-                "documented execution role.",
-            "Resource::arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*":
+    def _acknowledge(self, *, access_logs: s3.Bucket, failures: sqs.Queue, agent_policy: iam.Policy,
+                     fn_policy: iam.Policy, dispatcher: lambda_.Function, agent_name: str, model_id: str,
+                     fm_id: str, media: s3.Bucket, lambda_mode: bool) -> None:
+        """cdk-nag v3 acknowledgements, each attached to the construct that triggers it.
+
+        Finding ids are built from the same values as the policies (runtime name, model id), so a
+        different resource_prefix or model_id still synthesises cleanly. Each one is listed with
+        its reason in SECURITY-NOTES.md."""
+
+        def ack(construct, rule: str, reason: str, finding: str | None = None) -> None:
+            rid = f"AwsSolutions::AwsSolutions-{rule}" + (f"[{finding}]" if finding else "")
+            Validations.of(construct).acknowledge(Acknowledgment(id=rid, reason=reason))
+
+        ack(access_logs, "S1", "This bucket is the server-access-log destination; logging it to itself would loop.")
+        ack(failures, "SQS3", "This queue is itself the on-failure destination of the dispatcher Lambda; a further "
+                              "dead-letter queue behind it would only move the same messages again.")
+
+        media_ref = f"<{self.get_logical_id(media.node.default_child)}.Arn>"
+        object_prefixes = {
+            f"Resource::{media_ref}/{p}/*": "Object prefix in this stack's own media bucket."
+            for p in ("uploads", "results", "frames")
+        }
+        model_finding = {
+            f"Resource::arn:aws:bedrock:*::foundation-model/{fm_id}":
+                f"The inference profile {model_id} routes to the same foundation model in several regions of "
+                "its geography, so the foundation-model ARN needs a region wildcard; the model id is fixed.",
+        } if fm_id != model_id else {}
+        runtime_logs = "arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:/aws/bedrock-agentcore/runtimes/*"
+        agent_findings = {
+            f"Resource::{runtime_logs}":
+                "AgentCore Runtime writes to a log group named after its generated runtime id; the scope is the "
+                "runtime log-group family from the documented execution role.",
+            f"Resource::{runtime_logs}:log-stream:*":
                 "Log streams inside the AgentCore runtime log groups (documented execution role).",
             "Resource::arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:*":
                 "logs:DescribeLogGroups is a list action without resource-level scoping (documented role).",
             "Resource::*":
                 "X-Ray PutTraceSegments/PutTelemetryRecords/GetSampling* do not support resource-level "
                 "permissions; cloudwatch:PutMetricData is limited by the cloudwatch:namespace condition.",
-            "Resource::arn:aws:bedrock-agentcore:<AWS::Region>:<AWS::AccountId>:workload-identity-directory/default/workload-identity/proto_video_event_agent-*":
-                "Workload identity created by the service for this runtime name (generated suffix).",
-            "Resource::arn:aws:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0":
-                "A geographic cross-region inference profile routes to the same foundation model in several "
-                "regions; the model id itself is fixed.",
-            "Resource::<MediaA721A567.Arn>/results/*": "Object prefix in this stack's own media bucket.",
-            "Resource::<MediaA721A567.Arn>/uploads/*": "Object prefix in this stack's own media bucket.",
-            "Resource::<MediaA721A567.Arn>/frames/*": "Object prefix in this stack's own media bucket.",
-            "Resource::<AgentRuntime.AgentRuntimeArn>/*": "Endpoints (qualifiers) of this one runtime.",
+            "Resource::arn:aws:bedrock-agentcore:<AWS::Region>:<AWS::AccountId>:workload-identity-directory/"
+            f"default/workload-identity/{agent_name}-*":
+                f"Workload identity that the service creates for runtime {agent_name} (generated suffix).",
+            **model_finding,
+            **object_prefixes,
         }
-        for finding, reason in iam5.items():
-            Validations.of(self).acknowledge(Acknowledgment(
-                id=f"AwsSolutions::AwsSolutions-IAM5[{finding}]", reason=reason))
-        Validations.of(self).acknowledge(
-            Acknowledgment(id="AwsSolutions::AwsSolutions-L1",
-                           reason="Python 3.13 matches the arm64 wheel bundle shared with the AgentCore "
-                                  "Runtime (PYTHON_3_13); moving both to a newer runtime is a handover item."),
-            Acknowledgment(
-                id="AwsSolutions::AwsSolutions-IAM4[Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole]",
-                reason="Only the CDK-managed bucket-notifications custom-resource handler uses this managed "
-                       "policy; project roles use inline least-privilege policies."),
-        )
+        for finding, reason in agent_findings.items():
+            ack(agent_policy, "IAM5", reason, finding)
+
+        fn_findings = {"Resource::<AgentRuntime.AgentRuntimeArn>/*": "Endpoints (qualifiers) of this one runtime."}
+        if lambda_mode:
+            fn_findings.update(model_finding)
+            fn_findings.update(object_prefixes)
+        for finding, reason in fn_findings.items():
+            ack(fn_policy, "IAM5", reason, finding)
+
+        ack(dispatcher, "L1",
+            "The project's own dispatcher uses Python 3.13 on purpose: it shares one arm64 wheel bundle with the "
+            "AgentCore Runtime, whose newest direct-code runtime is PYTHON_3_13. Move both together (handover).")
+
+        handler = next((c for c in self.node.children if c.node.id.startswith("BucketNotificationsHandler")), None)
+        if handler is not None:
+            ack(handler, "IAM4",
+                "CDK-managed bucket-notifications handler (deploy time only) uses AWSLambdaBasicExecutionRole; the "
+                "project's own roles use inline least-privilege policies.",
+                "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
 
 
 def _retention_enum(days: int) -> logs.RetentionDays:

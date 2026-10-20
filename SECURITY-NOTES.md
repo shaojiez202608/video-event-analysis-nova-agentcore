@@ -30,14 +30,22 @@ No IAM users, no access keys, no `*:*` actions, no security groups (no VPC resou
   (sandbox: 7 days). The AgentCore runtime log group is created by the service (see cleanup.md).
 - Configuration is in SSM Parameter Store. There are no secrets in this project.
 
-## cdk-nag (AwsSolutions) suppressions
+## cdk-nag (AwsSolutions) acknowledgements
 
-| Rule | Where | Reason |
+cdk-nag v3 acknowledgements are attached to the construct that triggers each finding (never to
+the whole stack), in `VideoEventStack._acknowledge`. Finding ids are built from the same values as
+the policies (runtime name from `resource_prefix`, model id from `pipeline.model_id`), so changing
+either still synthesises without unacknowledged findings (`tests/test_infra.py` covers another
+prefix, an `eu.` profile, an on-demand model id and `orchestrator=lambda`).
+
+| Rule | Attached to | Reason |
 |---|---|---|
-| AwsSolutions-S1 | access-log bucket | It is the server-access-log destination. Logging it to itself would loop. |
-| AwsSolutions-IAM5 | stack (the project's roles and CDK custom-resource roles) | The wildcards are limited to: object prefixes in this stack's media bucket; the AgentCore runtime log-group family and its streams, as documented for the execution role; X-Ray actions that do not support resource-level permissions; `cloudwatch:PutMetricData` with a namespace condition; the foundation-model ARN in any region, because a cross-region inference profile routes to several regions; runtime endpoint sub-resources; CDK asset read; and CDK-managed custom-resource handlers (bucket notifications, auto-delete objects). |
-| AwsSolutions-IAM4 | CDK-managed custom-resource roles | Only the CDK singleton handlers use `AWSLambdaBasicExecutionRole`. The project's own roles use inline policies. |
-| AwsSolutions-L1 | CDK-managed custom-resource functions | The project's own function uses Python 3.13 to match the arm64 wheels and the AgentCore runtime. The CDK handlers pick their own runtimes. |
+| AwsSolutions-S1 | `AccessLogs` bucket | It is the server-access-log destination. Logging it to itself would loop. |
+| AwsSolutions-SQS3 | `DispatchFailures` queue | The queue is itself the dispatcher's on-failure destination. |
+| AwsSolutions-IAM5 | `AgentPolicy` (runtime execution role) | Wildcards limited to: object prefixes `uploads/*`, `results/*`, `frames/*` of this stack's media bucket; the AgentCore runtime log-group family and its streams, as in the documented execution role; `logs:DescribeLogGroups` (list action); X-Ray actions without resource-level permissions and `cloudwatch:PutMetricData` with a namespace condition (`Resource::*`); the workload identities `<runtime name>-*` that the service creates; the foundation-model ARN in any region, only when `model_id` is a cross-region inference profile (an on-demand model id is scoped to the stack region and needs no acknowledgement). |
+| AwsSolutions-IAM5 | `DispatcherPolicy` (dispatcher role) | `<runtime ARN>/*`: endpoints of this one runtime. With `orchestrator=lambda`, also the same media-bucket prefixes and foundation-model ARN as above. |
+| AwsSolutions-L1 | `Dispatcher` function (the project's own Lambda) | Python 3.13 on purpose: the Lambda shares one arm64 wheel bundle with the AgentCore Runtime, whose newest direct-code runtime is `PYTHON_3_13`. Both move together (handover item 12). |
+| AwsSolutions-IAM4 | CDK-managed `BucketNotificationsHandler…` role | The CDK singleton that configures bucket notifications at deploy time uses `AWSLambdaBasicExecutionRole`. The project's own roles use inline policies. |
 
 The project's own Lambda function is arm64. The CDK-managed custom-resource handlers (bucket
 notifications, auto-delete objects) use the architecture CDK chooses. They run only during deploy

@@ -10,24 +10,33 @@ from video_infra.stack import VideoEventStack, foundation_model_id
 ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture(scope="module")
-def synth(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("bundle")
+def _synth(tmp, mutate=None):
     (tmp / "bundle").mkdir()
     (tmp / "bundle" / "dispatcher_handler.py").write_text("def handler(e, c):\n    return {}\n")
     with zipfile.ZipFile(tmp / "agent.zip", "w") as z:
         z.writestr("main.py", "print('x')\n")
     params = json.loads((ROOT / "config" / "params.json").read_text())
+    if mutate:
+        mutate(params)
     deploy = dict(params["deploy"], bundle_dir=str(tmp / "bundle"), agent_zip=str(tmp / "agent.zip"))
     outdir = tmp / "cdk.out"
     app = cdk.App(outdir=str(outdir))
-    stack = VideoEventStack(app, "proto-video-test", deploy=deploy, pipeline=params["pipeline"])
+    stack = VideoEventStack(app, deploy["stack_name"], deploy=deploy, pipeline=params["pipeline"])
     for k, v in deploy["tags"].items():
         cdk.Tags.of(app).add(k, v)
     cdk.Validations.of(app).add_plugins(AwsSolutionsChecks(app))
     app.synth()
     report = json.loads((outdir / "validation-report.json").read_text())
     return stack, Template.from_stack(stack), report
+
+
+def _nag(report):
+    return next(p for p in report["pluginReports"] if p["pluginName"] == "AwsSolutions")
+
+
+@pytest.fixture(scope="module")
+def synth(tmp_path_factory):
+    return _synth(tmp_path_factory.mktemp("bundle"))
 
 
 def test_foundation_model_id():
@@ -37,7 +46,7 @@ def test_foundation_model_id():
 
 def test_no_unacknowledged_nag_findings(synth):
     _, _, report = synth
-    nag = next(p for p in report["pluginReports"] if p["pluginName"] == "AwsSolutions")
+    nag = _nag(report)
     assert nag["conclusion"] == "success"
     assert nag["violations"] == []
     for sv in nag["suppressedViolations"]:
@@ -114,3 +123,44 @@ def test_dispatcher_failures_go_to_queue(synth):
     t.has_resource_properties("AWS::Lambda::EventInvokeConfig", {
         "MaximumRetryAttempts": 0,
         "DestinationConfig": {"OnFailure": {"Destination": Match.any_value()}}})
+
+
+def _prefix_and_model(params, prefix="acme-cam", model="eu.amazon.nova-pro-v1:0", orchestrator=None):
+    params["deploy"]["resource_prefix"] = prefix
+    params["deploy"]["stack_name"] = f"{prefix}-stack"
+    params["pipeline"]["model_id"] = model
+    if orchestrator:
+        params["deploy"]["orchestrator"] = orchestrator
+
+
+@pytest.mark.parametrize("model,orchestrator", [
+    ("eu.amazon.nova-pro-v1:0", None),          # other prefix + other inference profile
+    ("amazon.nova-lite-v1:0", None),            # on-demand model id (no profile)
+    ("global.amazon.nova-2-lite-v1:0", "lambda"),  # lambda orchestrator adds Bedrock/S3 to the Lambda role
+])
+def test_nag_clean_with_other_prefix_and_model(tmp_path, model, orchestrator):
+    _, t, report = _synth(tmp_path, lambda p: _prefix_and_model(p, model=model, orchestrator=orchestrator))
+    nag = _nag(report)
+    assert nag["conclusion"] == "success", nag["violations"]
+    t.has_resource_properties("AWS::BedrockAgentCore::Runtime", {"AgentRuntimeName": "acme_cam_event_agent"})
+    t.has_resource_properties("AWS::Lambda::Function", {"FunctionName": "acme-cam-dispatcher"})
+    text = json.dumps(t.find_resources("AWS::IAM::Policy"))
+    assert f"foundation-model/{foundation_model_id(model)}" in text
+    assert "nova-2-lite" not in text or "nova-2-lite" in model
+    acknowledged = {sv["ruleName"] for sv in nag["suppressedViolations"]}
+    assert any("acme_cam_event_agent-*" in r for r in acknowledged)
+
+
+def test_acknowledgements_are_scoped_to_constructs(synth):
+    _, _, report = synth
+    for sv in _nag(report)["suppressedViolations"]:
+        paths = [c["constructPath"] for c in sv["violatingConstructs"]]
+        at = sv.get("acknowledgedAt", "")
+        assert at not in ("", "proto-video-event-analysis"), (sv["ruleName"], at)  # never the whole stack
+        assert all(p.startswith(at + "/") or p == at for p in paths), (sv["ruleName"], at, paths)
+
+
+def test_on_demand_model_is_region_scoped(tmp_path):
+    _, t, _ = _synth(tmp_path, lambda p: _prefix_and_model(p, model="amazon.nova-lite-v1:0"))
+    text = json.dumps(t.find_resources("AWS::IAM::Policy"))
+    assert "arn:aws:bedrock:*::" not in text and "inference-profile" not in text
