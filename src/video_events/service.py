@@ -9,7 +9,10 @@ Payload actions:
 
 Guards implemented here (not in the model): the bucket must be the configured
 media bucket, keys must match the upload pattern, object size and clip duration
-are capped, and override keys are restricted to sampling parameters.
+are capped, override keys are restricted to sampling parameters, and override
+values go through the same type and range checks as the parameter file
+(PipelineConfig.validate: interval >= 0.5 s, segment <= 900 s, and a hard cap
+on model calls per clip).
 """
 
 from __future__ import annotations
@@ -64,6 +67,8 @@ def analyze_s3_object(bucket: str, key: str, overrides: dict | None = None, s3=N
     if bucket != _media_bucket():
         raise PermissionError("bucket is not the configured media bucket")
     meta = VideoMeta.from_key(key)
+    if overrides is not None and not isinstance(overrides, dict):
+        raise ValueError("overrides must be an object")
     extra = set(overrides or {}) - ALLOWED_OVERRIDES
     if extra:
         raise ValueError(f"overrides not allowed: {sorted(extra)}")

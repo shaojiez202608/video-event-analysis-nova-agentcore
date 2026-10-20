@@ -221,3 +221,29 @@ def test_sample_frames_reach_clip_tail(tmp_path):
     frames = sample_frames(str(path), 2.0, width=64)
     assert [f.t for f in frames] == sample_times(probe(str(path)).duration_s, 2.0)
     assert len(frames) == 2 and frames[-1].t > 2.0
+
+
+def test_planned_calls_above_cap_rejected_before_any_call(synthetic_set):
+    data, clip = clip_bytes(synthetic_set, "s05_fire_yard")
+    model = MockVisionModel()
+    c = cfg(strategy="frames", frame_interval_s=0.5, segment_length_s=5.0, max_model_calls_per_clip=10)
+    with pytest.raises(ValueError, match="max_model_calls_per_clip"):
+        analyze_video(data, VideoMeta.from_key(clip["s3_key"]), c, model)
+    assert model.calls == 0
+
+
+def test_call_budget_stops_retries(synthetic_set):
+    data, clip = clip_bytes(synthetic_set, "s05_fire_yard")
+    model = MockVisionModel(faults=["not_json"] * 10)
+    c = cfg(strategy="frames", frame_interval_s=2.0, segment_length_s=10.0, max_retries=3, max_model_calls_per_clip=4)
+    res = analyze_video(data, VideoMeta.from_key(clip["s3_key"]), c, model)
+    assert model.calls == 4 and res["metrics"]["model_calls"] == 4
+    assert res["status"] == "fallback"
+
+
+@pytest.mark.parametrize("bad", [dict(frame_interval_s=0.1), dict(max_retries=10), dict(max_images_per_call=0),
+                                 dict(max_model_calls_per_clip=0), dict(frame_width="wide"),
+                                 dict(max_images_per_call=2.5), dict(persist_frames="yes")])
+def test_config_bounds(bad):
+    with pytest.raises(ValueError):
+        PipelineConfig(**bad).validate()

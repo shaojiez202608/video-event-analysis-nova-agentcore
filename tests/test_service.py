@@ -157,3 +157,20 @@ def test_dispatcher_raises_on_internal_failure(monkeypatch):
                                  "object": {"key": "uploads/cam/20261019T081200Z_a.mp4"}}}]}
     with pytest.raises(dispatcher.DispatchFailed):
         dispatcher.handler(event, None)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"frame_interval_s": 0.05},              # would be 600 frames / 120 calls for a 30 s clip
+    {"frame_interval_s": "fast"},            # used to raise TypeError -> HTTP 500
+    {"frame_interval_s": True},
+    {"segment_length_s": -1},
+    {"segment_length_s": 1e9},
+    {"strategy": ["frames"]},
+    "frames",
+])
+def test_override_values_are_bounded(overrides):
+    key = "uploads/cam/20261019T081200Z_x.mp4"
+    with pytest.raises(ValueError):
+        service.analyze_s3_object("media-bucket", key, overrides=overrides, s3=FakeS3({}))
+    out = service.safe_handle({"action": "analyze", "bucket": "media-bucket", "key": key, "overrides": overrides})
+    assert out["error"] == "ValueError" and "internal" not in out

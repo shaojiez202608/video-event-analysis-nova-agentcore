@@ -71,8 +71,14 @@ are validated against a JSON schema and a maximum time window before execution.
 
 ### 5. Abuse / resource exhaustion
 - Object size and clip duration caps (`MAX_OBJECT_BYTES`, `MAX_DURATION_S`); question length is truncated;
-  Q&A tool loop is capped (`MAX_TOOL_ROUNDS`); retries are capped (`max_retries`); Lambda async retries are
+  Q&A tool loop is capped (`MAX_TOOL_ROUNDS`); retries are capped (`max_retries` <= 3); Lambda async retries are
   disabled (D16).
+- Per-request `overrides` are limited to `strategy`, `frame_interval_s` and `segment_length_s`, must be a JSON
+  object, and go through the same type and range checks as the parameter file: `frame_interval_s` 0.5-60 s,
+  `segment_length_s` 0-900 s, numbers only (a string such as `"fast"` is a `ValueError`, not a 500).
+- Hard cap on model calls per clip, retries included (`max_model_calls_per_clip`, default 100, at most 500).
+  A plan that needs more calls is rejected before the first call; retries stop when the budget is spent and
+  the affected segments are marked failed (`partial` / `fallback`, `needs_review=true`).
 - Anyone with `s3:PutObject` on `uploads/` can trigger model calls. Production should restrict upload
   principals, add per-camera rate limits, and set budget alarms.
 

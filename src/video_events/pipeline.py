@@ -91,19 +91,25 @@ def _error_code(exc: BaseException) -> str:
     return str(code or type(exc).__name__)[:64]
 
 
-def _call_with_validation(model: VisionModel, req: ModelRequest, cfg: PipelineConfig, metrics: dict):
+def _call_with_validation(model: VisionModel, req: ModelRequest, cfg: PipelineConfig, metrics: dict,
+                          budget: list[int]):
     """One logical call with up to cfg.max_retries re-asks on invalid output.
 
     Returns a ValidatedOutput, or the exception that describes why this segment failed. Exceptions
     raised by the model client (botocore ClientError / BotoCoreError, for example ThrottlingException
     after the SDK's own retries) are treated as a failed segment, so the clip still gets a
-    partial or fallback result instead of being dropped.
+    partial or fallback result instead of being dropped. ``budget`` holds the number of model
+    calls still allowed for this clip; retries stop when it is used up.
     """
     last_err: Exception | None = None
     for attempt in range(cfg.max_retries + 1):
+        if budget[0] <= 0:
+            log_event("model_call_budget_exhausted", attempt=attempt)
+            return last_err or ModelCallFailed("call_budget_exhausted")
         if attempt:
             metrics["retries"] += 1
             req.retry_hint = str(last_err)[:200]
+        budget[0] -= 1
         try:
             resp = model.analyze(req)
         except _MODEL_ERRORS as exc:
@@ -171,10 +177,14 @@ def analyze_video(
                 frames=seg.frames, frame_interval_s=cfg.frame_interval_s,
             ))
     metrics["segments"] = len(reqs)
+    if len(reqs) > cfg.max_model_calls_per_clip:
+        # Checked before any model call: the clip would need more calls than the per-clip cap allows.
+        raise ValueError("planned model calls exceed max_model_calls_per_clip")
 
     pairs, failures = [], []
+    budget = [cfg.max_model_calls_per_clip]
     for req in reqs:
-        out = _call_with_validation(model, req, cfg, metrics)
+        out = _call_with_validation(model, req, cfg, metrics, budget)
         if isinstance(out, Exception):
             failures.append(out)
         else:
