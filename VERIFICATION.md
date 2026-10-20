@@ -107,11 +107,18 @@ mock 模型是颜色规则检测器，只看传给它的帧，只对合成集有
 | ASH | 见下 | 见下 |
 | Holmes | — | **未运行**：本机没有 Holmes |
 
-ASH（Automated Security Helper）v3.7.1：对仓库的干净 git 克隆运行（里面没有 zip 文件，也没有 .venv/build），输出目录 `_scan_out/video_analysis/`（项目目录之外）。结果见下面的「ASH 结果」小节。
+ASH（Automated Security Helper）v3.7.1：对仓库的干净 git 克隆运行，克隆中没有 zip 文件，也没有 .venv 或 build 目录（克隆时间早于提交 `e6fa410`）。命令为 `uvx --from <ASH v3.7.1 发布包> ash --source-dir <克隆> --output-dir _scan_out/video_analysis/ash --mode local`，输出在项目目录之外：`_scan_out/video_analysis/ash/reports/`。用 git 方式安装时因网络中断失败，改用 GitHub 发布的 tarball 安装后成功。
 
 ### ASH 结果
 
-（运行后补充）
+| 扫描器 | 结果 | 说明 |
+|---|---|---|
+| bandit | 1 Medium、150 Low | Medium：B108 `service.py` 用固定 `/tmp/...` 路径存放大视频。**已修复**：改为 `tempfile.mkstemp`，见提交 `e6fa410`，修复后对当前源码重跑 `bandit -r src` 无发现。Low：148 条 B101（测试中的 assert），以及 B404/B603（`gen_synthetic.py` 用固定参数调用本机 ffmpeg，属于开发工具，接受）。 |
+| detect-secrets | PASSED | 0 条 |
+| npm-audit | PASSED | 无 npm 依赖 |
+| cdk-nag、cfn-nag、checkov、grype、opengrep、semgrep、syft | MISSING | 本机 ASH local 模式缺少这些依赖，未运行。cdk-nag 已在第 2 节由项目自身的 synth 运行 |
+
+注意：B108 修复发生在 AWS 部署验证之后。部署时运行的代码仍是旧路径，但那条路径只在大于 `inline_video_max_bytes` 的视频上触发，合成片段没有触发。修复后只由单元测试和 bandit 验证，没有重新部署。
 
 ## 6. 未运行 / 未覆盖
 
