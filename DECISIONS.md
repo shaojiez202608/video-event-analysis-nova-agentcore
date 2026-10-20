@@ -20,7 +20,7 @@
 | D14 | 不暴露任何公网入口（无 API Gateway/函数 URL）；入口只有 S3 上传事件和 IAM SigV4 调用 `InvokeAgentRuntime` | API Gateway + Cognito | 「默认不暴露公网入口」。演示脚本用 AWS CLI/boto3 以 IAM 身份调用。 |
 | D15 | AgentCore Runtime 网络模式 `PUBLIC`（出站访问 AWS 服务端点）；入站只接受 IAM 签名请求 | VPC 模式 | 原型不需要访问私有资源；VPC 模式要多建 VPC/子网/端点，残留与成本维度都增加。上生产可评估 VPC 模式。 |
 | D16 | 分发 Lambda 的异步重试设为 0 | 默认重试 | 避免同一视频被重复分析（重复调用模型）；失败在日志中可见。上生产需加 DLQ/失败目的地（handover）。 |
-| D17 | 资源命名：栈 `proto-video-event-analysis`，Lambda `proto-video-dispatcher`，SSM `/proto-video/pipeline-config`；AgentCore Runtime 名称不允许连字符（CloudFormation schema 模式 `[a-zA-Z][a-zA-Z0-9_]{0,47}`），因此用 `proto_video_event_agent` | — | 项目约定资源以 `proto-video-` 开头；Runtime 名称是唯一例外，原因是服务的命名约束。 |
+| D17 | 资源命名：栈 `proto-video-event-analysis`，Lambda `proto-video-dispatcher`，SSM `/proto-video/pipeline-config`；AgentCore Runtime 名称不允许连字符（CloudFormation schema 模式 `[a-zA-Z][a-zA-Z0-9_]{0,47}`），因此用 `proto_video_event_agent` | — | 项目约定资源以 `proto-video-` 开头（栈名、参数名由 `deploy.stack_name`、`deploy.resource_prefix` 配置）；Runtime 名称是唯一例外，原因是服务的命名约束。 |
 | D18 | 可删除策略做成参数：`config/params.json`（沙箱）`removal_policy=destroy`；`config/params.customer.example.json`（交付默认）`retain` | 固定一种 | 通用要求第 5 节。 |
 | D19 | 抽帧默认不落盘（`persist_frames=false`）；若打开，帧写入 `frames/` 前缀并由生命周期规则按 `frame_retention_days` 删除；原始视频与结果也有各自的生命周期 | 帧一律落盘 | FR-7 隐私默认值。S3 生命周期的最小粒度是天，因此「保留时长」以天配置。 |
 | D20 | 合成评测视频用 Pillow 绘制色块+文字标签、本机 ffmpeg（libx264）编码；视频文件不提交，提交生成器与标签 | 提交 mp4；用公开数据集 | 可完全复现、无许可问题、无真实画面；仓库保持小。 |

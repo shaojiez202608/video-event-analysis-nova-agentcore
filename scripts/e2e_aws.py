@@ -45,14 +45,18 @@ def invoke(ac, arn: str, payload: dict) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stack", default="proto-video-event-analysis")
-    ap.add_argument("--region", default="us-east-1")
+    ap.add_argument("--params", default="config/params.json", help="stack name and region come from here")
+    ap.add_argument("--stack", help="override deploy.stack_name")
+    ap.add_argument("--region", help="override deploy.region")
     ap.add_argument("--manifest", default="sample-data/eval/manifest.json")
     ap.add_argument("--clips", nargs="*")
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--report", help="write a JSON report here")
     args = ap.parse_args()
+    deploy = json.loads(Path(args.params).read_text())["deploy"]
+    args.stack = args.stack or deploy["stack_name"]
+    args.region = args.region or deploy.get("region") or "us-east-1"
 
     out = outputs(args.stack, args.region)
     bucket, arn, fn = out["MediaBucketName"], out["AgentRuntimeArn"], out["DispatcherFunctionName"]
