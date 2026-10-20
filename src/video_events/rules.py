@@ -28,8 +28,11 @@ _ALLOWED_KEYS = {"name", "event_types", "categories", "locations", "subjects", "
 
 
 def _parse_hhmm(value: str) -> time:
-    hh, mm = value.split(":")
-    return time(int(hh), int(mm))
+    try:
+        hh, mm = str(value).split(":")
+        return time(int(hh), int(mm))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("local_time values must be HH:MM") from exc
 
 
 @dataclass
@@ -44,11 +47,15 @@ class WatchRule:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> WatchRule:
+        if not isinstance(d, dict) or not isinstance(d.get("name"), str) or not d["name"]:
+            raise ValueError("each watch rule must be an object with a non-empty name")
         extra = set(d) - _ALLOWED_KEYS
         if extra:
             raise ValueError(f"unknown rule keys: {sorted(extra)}")
         for key, allowed in (("event_types", ALL_EVENT_TYPES), ("locations", LOCATIONS), ("subjects", SUBJECTS),
                              ("categories", ("risk", "behavior"))):
+            if not isinstance(d.get(key, []), list):
+                raise ValueError(f"rule {d['name']}: {key} must be a list")
             bad = set(d.get(key, [])) - set(allowed)
             if bad:
                 raise ValueError(f"rule {d.get('name')}: invalid {key}: {sorted(bad)}")
@@ -56,7 +63,10 @@ class WatchRule:
             raise ValueError("invalid min_risk_level")
         window = None
         if d.get("local_time"):
-            window = (_parse_hhmm(d["local_time"]["start"]), _parse_hhmm(d["local_time"]["end"]))
+            lt = d["local_time"]
+            if not isinstance(lt, dict) or set(lt) != {"start", "end"}:
+                raise ValueError(f"rule {d['name']}: local_time must be {{'start': 'HH:MM', 'end': 'HH:MM'}}")
+            window = (_parse_hhmm(lt["start"]), _parse_hhmm(lt["end"]))
         return cls(
             name=str(d["name"]),
             event_types=list(d.get("event_types", [])),

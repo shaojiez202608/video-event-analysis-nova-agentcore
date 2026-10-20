@@ -12,6 +12,8 @@ import os
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
+from .i18n import SUPPORTED_LOCALES
+from .rules import load_rules
 from .taxonomy import DEFAULT_RISK_FLOORS, RISK_LEVELS
 
 STRATEGIES = ("video", "frames")
@@ -120,6 +122,14 @@ class PipelineConfig:
             raise ValueError("max_tokens must be between 1 and 10000")
         if not -840 <= self.utc_offset_minutes <= 840:
             raise ValueError("utc_offset_minutes must be between -840 and 840")
+        if not isinstance(self.locales, list) or not self.locales:
+            raise ValueError("locales must be a non-empty list")
+        bad = [lc for lc in self.locales if lc not in SUPPORTED_LOCALES]
+        if bad:
+            raise ValueError(f"unsupported locales: {bad}; supported: {list(SUPPORTED_LOCALES)}")
+        if not isinstance(self.watch_rules, list):
+            raise ValueError("watch_rules must be a list")
+        load_rules(self.watch_rules)  # raises ValueError on an invalid rule, before any model call
         for k, v in self.risk_floors.items():
             if v not in RISK_LEVELS:
                 raise ValueError(f"risk floor for {k} is not a valid level: {v}")

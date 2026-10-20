@@ -109,3 +109,32 @@ def test_night_window_crosses_midnight():
 def test_invalid_rules_rejected(bad):
     with pytest.raises(ValueError):
         load_rules([bad])
+
+
+@pytest.mark.parametrize("bad", [
+    {"watch_rules": [{"name": "x", "locations": ["moon"]}]},
+    {"watch_rules": [{"locations": ["yard"]}]},
+    {"watch_rules": [{"name": "x", "local_time": {"start": "25:00", "end": "06:00"}}]},
+    {"watch_rules": [{"name": "x", "local_time": "22:00-06:00"}]},
+    {"watch_rules": [{"name": "x", "subjects": "person"}]},
+    {"watch_rules": {"name": "x"}},
+    {"locales": ["de-DE"]},
+    {"locales": []},
+    {"locales": "zh-CN"},
+])
+def test_config_validate_checks_rules_and_locales(bad):
+    from video_events.config import PipelineConfig
+
+    with pytest.raises(ValueError):
+        PipelineConfig.from_dict(bad)
+
+
+def test_repo_param_files_validate():
+    import json
+    from pathlib import Path
+
+    from video_events.config import PipelineConfig
+
+    root = Path(__file__).resolve().parents[1] / "config"
+    for name in ("params.json", "params.customer.example.json"):
+        PipelineConfig.from_dict(json.loads((root / name).read_text())["pipeline"])
