@@ -27,12 +27,14 @@ if not params_path.is_file():
 params = json.loads(params_path.read_text(encoding="utf-8"))
 params_check.validate(params)  # fails synth before any construct is created
 deploy, pipeline = params["deploy"], params["pipeline"]
+operators = params_check.operator_arns(app.node.try_get_context("operator_principal_arns"))
 
 stack = VideoEventStack(
     app,
     deploy["stack_name"],
     deploy=deploy,
     pipeline=pipeline,
+    operator_arns=operators,
     env=cdk.Environment(account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
                         region=deploy.get("region") or os.environ.get("CDK_DEFAULT_REGION")),
     description="Prototype: camera clip event analysis with Amazon Nova and Amazon Bedrock AgentCore",

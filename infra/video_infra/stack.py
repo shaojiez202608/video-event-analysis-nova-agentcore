@@ -40,8 +40,13 @@ def foundation_model_id(model_id: str) -> str:
 
 
 class VideoEventStack(Stack):
-    def __init__(self, scope: Construct, cid: str, *, deploy: dict, pipeline: dict, **kwargs) -> None:
+    def __init__(self, scope: Construct, cid: str, *, deploy: dict, pipeline: dict,
+                 operator_arns: list[str] | None = None, **kwargs) -> None:
+        """``operator_arns``: IAM user/role ARNs (besides the stack's own roles) that may invoke the runtime
+        and read/write media objects, typically the deploying principal. They come from
+        ``-c operator_principal_arns=...`` at deploy time, never from the committed parameter file."""
         super().__init__(scope, cid, **kwargs)
+        operator_arns = list(operator_arns or [])
         prefix = deploy["resource_prefix"]
         destroy = deploy.get("removal_policy", "retain") == "destroy"
         removal = RemovalPolicy.DESTROY if destroy else RemovalPolicy.RETAIN
@@ -111,7 +116,9 @@ class VideoEventStack(Stack):
                 "bedrock-agentcore.amazonaws.com",
                 conditions={
                     "StringEquals": {"aws:SourceAccount": Aws.ACCOUNT_ID},
-                    "ArnLike": {"aws:SourceArn": f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:*"},
+                    # Narrowed from the documented account-wide "...:*" to this runtime's ARNs.
+                    "ArnLike": {"aws:SourceArn":
+                                f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:runtime/{agent_name}-*"},
                 },
             ),
             description="Execution role for the video event AgentCore runtime",
@@ -127,12 +134,10 @@ class VideoEventStack(Stack):
                                          "xray:GetSamplingRules", "xray:GetSamplingTargets"], resources=["*"]),
             iam.PolicyStatement(actions=["cloudwatch:PutMetricData"], resources=["*"],
                                 conditions={"StringEquals": {"cloudwatch:namespace": "bedrock-agentcore"}}),
-            iam.PolicyStatement(
-                actions=["bedrock-agentcore:GetWorkloadAccessToken", "bedrock-agentcore:GetWorkloadAccessTokenForJWT"],
-                resources=[
-                    f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:workload-identity-directory/default",
-                    f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:workload-identity-directory/default/workload-identity/{agent_name}-*",
-                ]),
+            # The documented logs:PutResourcePolicy, scoped to this runtime's log groups. No workload-identity
+            # (GetWorkloadAccessToken*) permissions: the code never requests workload tokens or outbound OAuth.
+            iam.PolicyStatement(actions=["logs:PutResourcePolicy"], resources=[
+                f"arn:aws:logs:{Aws.REGION}:{Aws.ACCOUNT_ID}:log-group:/aws/bedrock-agentcore/runtimes/{agent_name}-*"]),
             iam.PolicyStatement(actions=["bedrock:InvokeModel"], resources=model_resources),
             iam.PolicyStatement(actions=["s3:GetObject"], resources=[media.arn_for_objects("uploads/*"),
                                                                      media.arn_for_objects("results/*")]),
@@ -258,6 +263,51 @@ class VideoEventStack(Stack):
             description="S3 upload -> AgentCore runtime dispatcher",
         )
         dispatcher.node.add_dependency(fn_policy)
+
+        # ------------------------------------------------------------------ resource policies
+        # Runtime: only the dispatcher role and the named operators may invoke it; everyone else is
+        # explicitly denied, including other principals of this account that have IAM permissions.
+        invokers = [fn_role.role_arn, *operator_arns]
+        invoke_actions = ["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeAgentRuntimeCommand",
+                          "bedrock-agentcore:InvokeAgentRuntimeCommandShell",
+                          "bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream",
+                          "bedrock-agentcore:StopRuntimeSession"]
+        user_actions = ["bedrock-agentcore:InvokeAgentRuntimeForUser",
+                        "bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStreamForUser"]
+        runtime_policy = agentcore.CfnResourcePolicy(
+            self, "RuntimeResourcePolicy",
+            resource_arn=runtime.attr_agent_runtime_arn,
+            policy=Stack.of(self).to_json_string({
+                "Version": "2012-10-17",
+                "Statement": [
+                    {"Sid": "AllowExpectedCallers", "Effect": "Allow", "Principal": {"AWS": invokers},
+                     "Action": "bedrock-agentcore:InvokeAgentRuntime", "Resource": runtime.attr_agent_runtime_arn},
+                    {"Sid": "DenyEveryoneElse", "Effect": "Deny", "Principal": "*", "Action": invoke_actions,
+                     "Resource": runtime.attr_agent_runtime_arn,
+                     "Condition": {"ArnNotEquals": {"aws:PrincipalArn": invokers}}},
+                    # runtimeUserId is not used: nobody may pass a caller-chosen user id.
+                    {"Sid": "DenyUserIdInvocations", "Effect": "Deny", "Principal": "*", "Action": user_actions,
+                     "Resource": runtime.attr_agent_runtime_arn},
+                ],
+            }),
+        )
+        runtime_policy.node.add_dependency(fn_role)
+
+        # Media bucket: object reads/writes only by this stack's roles and the named operators. AWS services
+        # acting on a caller's behalf (for example Bedrock reading a clip by S3 URI) are evaluated as the caller.
+        media_writers = [agent_role.role_arn, fn_role.role_arn, *operator_arns]
+        auto_delete = self.node.try_find_child("Custom::S3AutoDeleteObjectsCustomResourceProvider")
+        if auto_delete is not None:
+            media_writers.append(auto_delete.role_arn)
+        media.add_to_resource_policy(iam.PolicyStatement(
+            sid="DenyObjectAccessExceptExpectedPrincipals", effect=iam.Effect.DENY,
+            principals=[iam.AnyPrincipal()],
+            actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:GetObjectVersion",
+                     "s3:DeleteObjectVersion"],
+            resources=[media.arn_for_objects("*")],
+            conditions={"ArnNotEquals": {"aws:PrincipalArn": media_writers},
+                        "Bool": {"aws:ViaAWSService": "false"}},
+        ))
         for suffix in VIDEO_SUFFIXES:
             media.add_event_notification(s3.EventType.OBJECT_CREATED, s3n.LambdaDestination(dispatcher),
                                          s3.NotificationKeyFilter(prefix="uploads/", suffix=suffix))
@@ -314,9 +364,10 @@ class VideoEventStack(Stack):
             "Resource::*":
                 "X-Ray PutTraceSegments/PutTelemetryRecords/GetSampling* do not support resource-level "
                 "permissions; cloudwatch:PutMetricData is limited by the cloudwatch:namespace condition.",
-            "Resource::arn:aws:bedrock-agentcore:<AWS::Region>:<AWS::AccountId>:workload-identity-directory/"
-            f"default/workload-identity/{agent_name}-*":
-                f"Workload identity that the service creates for runtime {agent_name} (generated suffix).",
+            f"Resource::arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:/aws/bedrock-agentcore/runtimes/"
+            f"{agent_name}-*":
+                f"logs:PutResourcePolicy on the log groups of runtime {agent_name} only (generated id suffix), as in "
+                "the documented execution role.",
             **model_finding,
             **object_prefixes,
         }

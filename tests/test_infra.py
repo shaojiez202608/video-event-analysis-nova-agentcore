@@ -10,7 +10,7 @@ from video_infra.stack import VideoEventStack, foundation_model_id
 ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
 
 
-def _synth(tmp, mutate=None):
+def _synth(tmp, mutate=None, operators=None):
     (tmp / "bundle").mkdir()
     (tmp / "bundle" / "dispatcher_handler.py").write_text("def handler(e, c):\n    return {}\n")
     with zipfile.ZipFile(tmp / "agent.zip", "w") as z:
@@ -21,7 +21,8 @@ def _synth(tmp, mutate=None):
     deploy = dict(params["deploy"], bundle_dir=str(tmp / "bundle"), agent_zip=str(tmp / "agent.zip"))
     outdir = tmp / "cdk.out"
     app = cdk.App(outdir=str(outdir))
-    stack = VideoEventStack(app, deploy["stack_name"], deploy=deploy, pipeline=params["pipeline"])
+    stack = VideoEventStack(app, deploy["stack_name"], deploy=deploy, pipeline=params["pipeline"],
+                            operator_arns=operators)
     for k, v in deploy["tags"].items():
         cdk.Tags.of(app).add(k, v)
     cdk.Validations.of(app).add_plugins(AwsSolutionsChecks(app))
@@ -177,3 +178,39 @@ def test_runtime_log_group_gets_retention_and_is_deleted(synth):
     assert "deleteLogGroup" in props and "AgentRuntimeId" in props and "-DEFAULT" in props
     policy = json.dumps(t.find_resources("AWS::IAM::Policy"))
     assert "logs:PutRetentionPolicy" in policy and "logs:DeleteLogGroup" in policy
+
+
+def test_agent_role_trust_has_source_account_and_narrow_source_arn(synth):
+    _, t, _ = synth
+    roles = t.find_resources("AWS::IAM::Role")
+    agent = next(r for k, r in roles.items() if k.startswith("AgentRole"))
+    cond = agent["Properties"]["AssumeRolePolicyDocument"]["Statement"][0]["Condition"]
+    assert cond["StringEquals"]["aws:SourceAccount"] == {"Ref": "AWS::AccountId"}
+    assert ":runtime/proto_video_event_agent-*" in json.dumps(cond["ArnLike"]["aws:SourceArn"])
+
+
+def test_no_workload_identity_permissions(synth):
+    _, t, _ = synth
+    assert "GetWorkloadAccessToken" not in json.dumps(t.find_resources("AWS::IAM::Policy"))
+
+
+def test_runtime_resource_policy_denies_everyone_else(tmp_path):
+    op = "arn:aws:iam::111122223333:role/Operator"
+    _, t, _ = _synth(tmp_path, operators=[op])
+    pol = next(iter(t.find_resources("AWS::BedrockAgentCore::ResourcePolicy").values()))
+    text = json.dumps(pol["Properties"])
+    assert "DenyEveryoneElse" in text and "ArnNotEquals" in text and op in text
+    assert "DenyUserIdInvocations" in text and "InvokeAgentRuntimeForUser" in text
+    assert "DispatcherRole" in text
+    bucket = json.dumps(t.find_resources("AWS::S3::BucketPolicy"))
+    assert "DenyObjectAccessExceptExpectedPrincipals" in bucket and op in bucket and "AgentRole" in bucket
+
+
+def test_operator_arns_are_validated():
+    from video_infra.params import ParamsInvalid, operator_arns
+
+    assert operator_arns("arn:aws:iam::111122223333:user/alice, arn:aws:iam::111122223333:role/ops") == [
+        "arn:aws:iam::111122223333:user/alice", "arn:aws:iam::111122223333:role/ops"]
+    assert operator_arns(None) == []
+    with pytest.raises(ParamsInvalid):
+        operator_arns("arn:aws:sts::111122223333:assumed-role/ops/session")

@@ -95,3 +95,20 @@ def validate(params: dict[str, Any]) -> None:
         errors.append(f"pipeline: {exc}")
     if errors:
         raise ParamsInvalid("invalid parameter file:\n  - " + "\n  - ".join(errors))
+
+
+OPERATOR_ARN_RE = re.compile(r"^arn:aws[a-z-]*:iam::\d{12}:(user|role)/[A-Za-z0-9+=,.@_/-]{1,512}$")
+
+
+def operator_arns(raw: str | list | None) -> list[str]:
+    """Parse ``-c operator_principal_arns=a,b``: IAM user or role ARNs allowed to invoke the runtime and
+    use the media bucket besides the stack's own roles. Assumed-role session ARNs are not accepted
+    (resource policies match the role ARN); pass the role ARN instead."""
+    if not raw:
+        return []
+    items = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
+    bad = [x for x in items if not OPERATOR_ARN_RE.match(x)]
+    if bad:
+        raise ParamsInvalid("operator_principal_arns must be IAM user or role ARNs "
+                            "(arn:aws:iam::111122223333:role/NAME); got " + ", ".join(b[:20] + "..." for b in bad))
+    return items
