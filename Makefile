@@ -27,9 +27,10 @@ synth: ## cdk synth + cdk-nag with the example parameters (no AWS calls beyond c
 deploy: init ## Preflight, refuse deletions/replacements unless ALLOW_DESTRUCTIVE=1, then deploy
 	./scripts/deploy.sh $(PARAMS)
 
-verify: ## End-to-end check plus failure drill against the deployed stack (paid: ALLOW_PAID=1)
+verify: ## End-to-end check, failure drill and resource-policy deny probe (paid: ALLOW_PAID=1)
 	$(PY) scripts/e2e_aws.py --params $(PARAMS) --all --report out/e2e_report.json
 	$(PY) scripts/failure_drill_aws.py --params $(PARAMS) --report out/failure_drill.json
+	$(PY) scripts/deny_probe_aws.py --params $(PARAMS) --report out/deny_probe.json
 
 eval-mock: ## Evaluation and strategy comparison with the mock model (also runs the negative control)
 	$(PY) scripts/evaluate.py --mode mock --strategy video
@@ -46,7 +47,7 @@ verify-cleanup: ## Read-only residual check; exits non-zero if anything is left
 	./scripts/verify_cleanup.sh --params $(PARAMS) --bootstrap-keys infra/bootstrap-asset-keys.txt
 
 scan-ci: ## Secret scan of the full history (gitleaks) and of the working tree (detect-secrets)
-	gitleaks git . --no-banner --redact
+	gitleaks git . --config .gitleaks.toml --no-banner --redact
 	uvx detect-secrets scan --exclude-files '(\.venv|build|cdk\.out|out|uv\.lock|sample-data/eval/videos|\.pytest_cache|\.ruff_cache)/' \
 	  | python3 -c 'import json,sys; r=json.load(sys.stdin)["results"]; print("detect-secrets findings:", len(r)); sys.exit(1 if r else 0)'
 

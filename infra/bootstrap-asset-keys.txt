@@ -14,3 +14,6 @@ f38fd6b616f5baab474effead3dca04d5d40b3901d04ac66b75a419c5afb6584.zip
 d0c49c605c0a5d6c85a22ab81e6634e4d786def127802b5f9bcc12af8dd51516.zip
 4b7286ab973ec7ea280114ad998cfd02748f32fad9434cff0b95b138f573b1c5.json
 a2fab645bb0362cff3f1eedca1a8ce48f53e3f9906bad66fbf3a529a98a3a1de.json
+# Template of the first deployment of the earlier version, identified by content (stack template with
+# this project's runtime name and metrics namespace; same size as the second deployment's template):
+e6acaf0865baf9d99f41d75b6114d1d2227cb044bb949d1fc06feb664bfc0662.json
