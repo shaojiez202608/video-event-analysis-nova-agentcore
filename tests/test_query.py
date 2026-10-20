@@ -153,3 +153,75 @@ def test_ask_bedrock_invalid_tool_input_returns_error(store):
     out = query.ask("Who?", store, ["cam-yard"], NOW, mode="bedrock", model_id="m", client=fake)
     assert out["events"] == []
     assert fake.calls[1]["messages"][-2]["content"][0]["toolResult"]["status"] == "error"
+
+
+class _CappedStore:
+    """Wraps a LocalStore and reports a read cap, like S3Store with max_objects reached."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def list_results(self, cams, start, end):
+        from video_events.store import ResultList
+
+        return ResultList(self.inner.list_results(cams, start, end), truncated=True)
+
+
+def test_truncation_is_reported(store):
+    capped = _CappedStore(store)
+    out = query.ask("今天谁到过门口？", capped, ["cam-front"], NOW)
+    assert out["truncated"] is True and "结果可能不完整" in out["answer"]
+    summary = query.daily_summary(capped, ["cam-front"], "2026-10-19")
+    assert summary["truncated"] is True and "incomplete" in summary["text"]["en-US"]
+    assert query.ask("今天谁到过门口？", store, ["cam-front"], NOW)["truncated"] is False
+    fake = FakeBedrock({"start": "2026-10-19T00:00:00Z", "end": "2026-10-19T23:59:59Z"})
+    out = query.ask("What happened?", capped, ["cam-yard"], NOW, mode="bedrock", model_id="m", client=fake)
+    assert out["truncated"] is True and out["answer"].endswith("narrow the time range or cameras.)")
+    assert fake.calls[1]["messages"][-2]["content"][0]["toolResult"]["content"][0]["json"]["truncated"] is True
+
+
+def test_search_limit_sets_truncated(store):
+    flt = query.EventFilter(start=datetime(2026, 10, 18, tzinfo=UTC), end=datetime(2026, 10, 20, tzinfo=UTC))
+    assert query.search(store, ["cam-front", "cam-yard"], flt, limit=2).truncated is True
+    assert query.search(store, ["cam-front", "cam-yard"], flt, limit=50).truncated is False
+
+
+def test_s3_store_cap_sets_truncated():
+    import io
+    import json as _json
+
+    from video_events.store import S3Store
+
+    class FakeS3:
+        def get_paginator(self, name):
+            class P:
+                def paginate(self, Bucket, Prefix):
+                    yield {"Contents": [{"Key": f"{Prefix}{i}.json"} for i in range(5)]}
+            return P()
+
+        def get_object(self, Bucket, Key):
+            return {"Body": io.BytesIO(_json.dumps({"k": Key}).encode())}
+
+    out = S3Store("b", client=FakeS3(), max_objects=3).list_results(["cam"], NOW, NOW)
+    assert len(out) == 3 and out.truncated is True
+    out = S3Store("b", client=FakeS3(), max_objects=10).list_results(["cam"], NOW, NOW)
+    assert len(out) == 5 and out.truncated is False
+
+
+def test_tool_times_with_offsets_are_converted_not_relabelled():
+    flt = query.filter_from_tool_input({"start": "2026-10-19T08:00:00+08:00", "end": "2026-10-19T03:00:00"})
+    assert flt.start == datetime(2026, 10, 19, 0, 0, tzinfo=UTC)
+    assert flt.end == datetime(2026, 10, 19, 3, 0, tzinfo=UTC)
+
+
+def test_bedrock_final_answer_is_cleaned(store):
+    class Naming(FakeBedrock):
+        def converse(self, **kw):
+            resp = super().converse(**kw)
+            if len(self.calls) > 1:
+                resp["output"]["message"]["content"] = [{"text": "The person at the door is named John.\x07"}]
+            return resp
+
+    fake = Naming({"start": "2026-10-19T00:00:00Z", "end": "2026-10-19T23:59:59Z"})
+    out = query.ask("Who came?", store, ["cam-front"], NOW, mode="bedrock", model_id="m", client=fake)
+    assert "John" not in out["answer"] and out["answer"] == "[description removed: identity-like content]"

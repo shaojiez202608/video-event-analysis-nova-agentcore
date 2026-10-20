@@ -132,3 +132,8 @@ def test_schema_error_message_has_no_instance_values(bad):
     msg = str(info.value)
     assert "SECRET" not in msg
     assert msg.startswith("schema: ")
+
+
+def test_harmless_who_is_not_redacted():
+    out = validate_model_output(doc(summary="It is unclear who is at the door."), 30)
+    assert out.summary == "It is unclear who is at the door." and out.warnings == []

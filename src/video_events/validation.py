@@ -29,11 +29,12 @@ _EVT = Draft202012Validator(MODEL_EVENT_SCHEMA)
 
 _CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 # Phrases that suggest identification of a person. Matching text is replaced,
-# not trusted. This is a coarse guard; the prompt and the model's own
+# not trusted. Plain "who is" is not on the list: it mostly appears in harmless
+# text such as "unclear who is at the door". This is a coarse guard; the prompt and the model's own
 # limitations are the primary controls.
 _IDENTITY = re.compile(
     r"(\bnamed\b|\bname is\b|\bidentified as\b|\brecogni[sz]ed as\b|\bfacial\b|\bface (match|id)|"
-    r"\bwho is\b|名叫|名字是|身份是|认出|人脸|是.{0,6}(先生|女士|小姐))",
+    r"名叫|名字是|身份是|认出|人脸|是.{0,6}(先生|女士|小姐))",
     re.IGNORECASE,
 )
 REDACTED = "[description removed: identity-like content]"

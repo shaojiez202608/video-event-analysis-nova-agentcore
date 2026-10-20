@@ -35,6 +35,16 @@ def _days(start: datetime, end: datetime) -> list[str]:
     return out
 
 
+class ResultList(list):
+    """A list of result documents with a ``truncated`` flag (True when a read cap was hit)."""
+
+    truncated: bool = False
+
+    def __init__(self, items=(), truncated: bool = False):
+        super().__init__(items)
+        self.truncated = truncated
+
+
 class EventStore(Protocol):
     def put(self, result: dict) -> str: ...
 
@@ -53,7 +63,7 @@ class LocalStore:
         return key
 
     def list_results(self, camera_ids: list[str], start: datetime, end: datetime) -> list[dict]:
-        out = []
+        out = ResultList()
         cams = camera_ids or [p.name for p in (self.root / "results").glob("*") if p.is_dir()]
         for cam in cams:
             for day in _days(start, end):
@@ -79,7 +89,8 @@ class S3Store:
         return key
 
     def list_results(self, camera_ids: list[str], start: datetime, end: datetime) -> list[dict]:
-        out: list[dict] = []
+        """At most ``max_objects`` documents; ``.truncated`` is set when more exist."""
+        out = ResultList()
         if not camera_ids:
             raise ValueError("camera_ids is required for S3 queries")
         paginator = self.s3.get_paginator("list_objects_v2")
@@ -89,6 +100,7 @@ class S3Store:
                 for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
                     for obj in page.get("Contents", []):
                         if len(out) >= self.max_objects:
+                            out.truncated = True
                             return out
                         body = self.s3.get_object(Bucket=self.bucket, Key=obj["Key"])["Body"].read()
                         out.append(json.loads(body))

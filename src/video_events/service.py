@@ -150,7 +150,7 @@ def handle(payload: dict[str, Any]) -> dict[str, Any]:
         flt = query.parse_query_rules(str(payload.get("query", ""))[:500], now, cfg.utc_offset_minutes)
         hits = query.search(store, _camera_ids(payload), flt)
         log_event("search_done", hits=len(hits))
-        return {"filter": flt.describe(), "events": hits}
+        return {"filter": flt.describe(), "events": list(hits), "truncated": hits.truncated}
     if action == "daily_summary":
         return query.daily_summary(store, _camera_ids(payload), str(payload["date"]), cfg.utc_offset_minutes,
                                    cfg.locales)

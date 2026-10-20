@@ -24,8 +24,9 @@ from jsonschema import Draft202012Validator
 
 from . import i18n
 from .prompts import QA_SYSTEM_PROMPT
-from .store import EventStore
+from .store import EventStore, ResultList
 from .taxonomy import ALL_EVENT_TYPES, LOCATIONS, RISK_LEVELS, SCENE_TYPES, SUBJECTS, risk_rank
+from .validation import clean_text
 
 PERSON_SUBJECTS = ["person", "courier_like_person", "multiple_people"]
 
@@ -51,9 +52,17 @@ def _ts(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def search(store: EventStore, camera_ids: list[str], flt: EventFilter, limit: int = 50) -> list[dict]:
+def _utc(t: datetime) -> datetime:
+    """Naive times are taken as UTC (as the tool schema says); aware times are converted, not relabelled."""
+    return t.replace(tzinfo=UTC) if t.tzinfo is None else t.astimezone(UTC)
+
+
+def search(store: EventStore, camera_ids: list[str], flt: EventFilter, limit: int = 50) -> ResultList:
+    """Matching events, at most ``limit``. ``.truncated`` is True when the store hit its read cap or
+    more than ``limit`` events matched, so callers can say the answer may be incomplete."""
     hits = []
-    for res in store.list_results(camera_ids, flt.start - timedelta(hours=1), flt.end):
+    results = store.list_results(camera_ids, flt.start - timedelta(hours=1), flt.end)
+    for res in results:
         if flt.scene_types and res["scene"]["type"] not in flt.scene_types:
             continue
         for ev in res["events"]:
@@ -80,7 +89,14 @@ def search(store: EventStore, camera_ids: list[str], flt: EventFilter, limit: in
                 "description": ev.get("description", ""),
             })
     hits.sort(key=lambda h: h["abs_start"])
-    return hits[:limit]
+    return ResultList(hits[:limit], truncated=bool(getattr(results, "truncated", False)) or len(hits) > limit)
+
+
+TRUNCATED_NOTE = {
+    "zh-CN": "（结果可能不完整：已达到读取上限，请缩小时间范围或摄像头范围。）",
+    "en-US": " (Results may be incomplete: the read limit was reached; narrow the time range or cameras.)",
+    "ru-RU": " (Результаты могут быть неполными: достигнут лимит чтения; сузьте период или список камер.)",
+}
 
 
 # ---------------------------------------------------------------- rule parser
@@ -220,9 +236,10 @@ def filter_from_tool_input(args: dict) -> EventFilter:
     if errs:
         path = "/".join(str(p) for p in errs[0].absolute_path) or "<root>"
         raise ValueError(f"invalid tool input: {path}: {errs[0].validator}")
-    start, end = _ts(args["start"]), _ts(args["end"])
-    if start.tzinfo is None or end.tzinfo is None:
-        start, end = start.replace(tzinfo=UTC), end.replace(tzinfo=UTC)
+    try:
+        start, end = _utc(_ts(args["start"])), _utc(_ts(args["end"]))
+    except ValueError as exc:
+        raise ValueError("invalid tool input: start/end must be ISO-8601") from exc
     if end < start or end - start > MAX_WINDOW:
         raise ValueError("invalid time window")
     return EventFilter(
@@ -251,7 +268,17 @@ def ask_bedrock(question: str, store: EventStore, camera_ids: list[str], now_utc
                 f"User local time is UTC{utc_offset_minutes / 60:+.1f}h; local_time fields are already local.")
     messages: list[dict] = [{"role": "user", "content": [{"text": question[:500]}]}]
     used: list[dict] = []
+    truncated = False
     usage = {"model_calls": 0, "input_tokens": 0, "output_tokens": 0, "tool_calls": 0}
+    lang = _lang(question)
+
+    def done(text: str) -> dict:
+        answer, _ = clean_text(text, 1000)  # same hygiene as model text in results
+        answer = answer or _NONE[lang]
+        if truncated:
+            answer += TRUNCATED_NOTE[lang]
+        return {"answer": answer, "events": used, "usage": usage, "mode": "bedrock", "truncated": truncated}
+
     for _ in range(MAX_TOOL_ROUNDS + 1):
         resp = client.converse(modelId=model_id, system=[{"text": sys_text}], messages=messages,
                                toolConfig={"tools": [tool]}, inferenceConfig={"maxTokens": 800, "temperature": 0})
@@ -262,21 +289,21 @@ def ask_bedrock(question: str, store: EventStore, camera_ids: list[str], now_utc
         messages.append(msg)
         tool_uses = [c["toolUse"] for c in msg["content"] if "toolUse" in c]
         if resp.get("stopReason") != "tool_use" or not tool_uses or usage["tool_calls"] >= MAX_TOOL_ROUNDS:
-            text = "".join(c.get("text", "") for c in msg["content"]).strip()
-            return {"answer": text or _NONE[_lang(question)], "events": used, "usage": usage, "mode": "bedrock"}
+            return done("".join(c.get("text", "") for c in msg["content"]).strip())
         results = []
         for tu in tool_uses:
             usage["tool_calls"] += 1
             try:
                 hits = search(store, camera_ids, filter_from_tool_input(tu.get("input") or {}))
                 used.extend(hits)
-                payload = {"json": {"events": _tool_hits_view(hits)}}
+                truncated = truncated or hits.truncated
+                payload = {"json": {"events": _tool_hits_view(hits), "truncated": hits.truncated}}
                 results.append({"toolResult": {"toolUseId": tu["toolUseId"], "content": [payload]}})
             except ValueError as exc:
                 results.append({"toolResult": {"toolUseId": tu["toolUseId"], "status": "error",
                                                "content": [{"text": str(exc)}]}})
         messages.append({"role": "user", "content": results})
-    return {"answer": _NONE[_lang(question)], "events": used, "usage": usage, "mode": "bedrock"}
+    return done("")
 
 
 def ask(question: str, store: EventStore, camera_ids: list[str], now_utc: datetime, mode: str = "mock",
@@ -285,7 +312,9 @@ def ask(question: str, store: EventStore, camera_ids: list[str], now_utc: dateti
         return ask_bedrock(question, store, camera_ids, now_utc, model_id, utc_offset_minutes, client)
     flt = parse_query_rules(question, now_utc, utc_offset_minutes)
     hits = search(store, camera_ids, flt)
-    return {"answer": template_answer(question, hits), "events": hits, "filter": flt.describe(), "mode": "mock"}
+    answer = template_answer(question, hits) + (TRUNCATED_NOTE[_lang(question)] if hits.truncated else "")
+    return {"answer": answer, "events": list(hits), "filter": flt.describe(), "mode": "mock",
+            "truncated": hits.truncated}
 
 
 # ---------------------------------------------------------------- daily summary
@@ -332,11 +361,12 @@ def daily_summary(store: EventStore, camera_ids: list[str], local_date: str, utc
                  "en-US": ("Events today", "Risk overview", "Abnormal periods", "Key events"),
                  "ru-RU": ("События за день", "Обзор рисков", "Аномальные периоды", "Главное")}[lc]
         text[lc] = (f"{label[0]}: {len(hits)}. {label[1]}: {overview}. "
-                    f"{label[2]}: {', '.join(abnormal) or '-'}. {label[3]}: {'; '.join(heads) or '-'}.")
+                    f"{label[2]}: {', '.join(abnormal) or '-'}. {label[3]}: {'; '.join(heads) or '-'}."
+                    + (TRUNCATED_NOTE[lc] if hits.truncated else ""))
     return {
         "date": local_date, "camera_ids": camera_ids, "total_events": len(hits), "risk_overview": counts,
         "events_by_type": by_type, "key_events": key_events, "abnormal_periods": abnormal,
-        "recommended_clips": recommended, "text": text,
+        "recommended_clips": recommended, "text": text, "truncated": hits.truncated,
     }
 
 
