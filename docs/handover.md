@@ -82,4 +82,5 @@ with the data owner before any use beyond synthetic data.
 
 - Model id, sampling and rules are in SSM (`/proto-video/pipeline-config`). Update the parameter
   file and redeploy rather than editing SSM by hand.
-- After `cdk destroy`, delete the AgentCore runtime log group by hand (cleanup.md).
+- After `cdk destroy`, run `scripts/verify_cleanup.sh` and delete the log groups that Lambda created for the
+  CDK custom-resource handlers (cleanup.md). The AgentCore runtime log group is owned by the stack.

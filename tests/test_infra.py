@@ -164,3 +164,15 @@ def test_on_demand_model_is_region_scoped(tmp_path):
     _, t, _ = _synth(tmp_path, lambda p: _prefix_and_model(p, model="amazon.nova-lite-v1:0"))
     text = json.dumps(t.find_resources("AWS::IAM::Policy"))
     assert "arn:aws:bedrock:*::" not in text and "inference-profile" not in text
+
+
+def test_runtime_log_group_has_retention(synth):
+    _, t, _ = synth
+    groups = t.find_resources("AWS::Logs::LogGroup")
+    runtime = [g for g in groups.values() if "bedrock-agentcore/runtimes" in json.dumps(g["Properties"]["LogGroupName"])]
+    assert len(runtime) == 1
+    g = runtime[0]
+    assert g["Properties"]["RetentionInDays"] == 7
+    assert g["DeletionPolicy"] == "Delete"
+    name = json.dumps(g["Properties"]["LogGroupName"])
+    assert "AgentRuntimeId" in name and "-DEFAULT" in name

@@ -19,7 +19,8 @@ aws s3api delete-bucket --bucket <MediaBucketName>
 
 | Resource | Why it exists | How to remove |
 |---|---|---|
-| Log group `/aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT` | AgentCore Runtime creates it at run time, so the stack does not own it | `aws logs delete-log-group --log-group-name /aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT` |
+| Log groups of the two CDK-managed custom-resource Lambdas (`/aws/lambda/<stack>-…`) | Lambda creates them on first run; CDK does not own them | `aws logs delete-log-group --log-group-name <name>` |
+| Log group `/aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT` | The stack pre-creates it with the configured retention and deletes it on destroy (`RuntimeLogs`). Only if the service had already created it before the stack resource (not observed) would it stay | `aws logs delete-log-group --log-group-name /aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT` |
 | Workload identity named after the runtime | Created by AgentCore for the runtime | Check with `aws bedrock-agentcore-control list-workload-identities`. If one with the runtime name is still there after the runtime is deleted, run `delete-workload-identity --name <name>` |
 | CDK asset objects (Lambda code, agent zip) in the bootstrap assets bucket | `cdk deploy` uploads them there | They belong to the shared CDK bootstrap bucket. Leave them, or delete only the exact keys this project uploaded (see DEPLOYMENT-LOG.md) |
 

@@ -174,6 +174,14 @@ class VideoEventStack(Stack):
             tags=dict(deploy.get("tags", {})),
         )
         runtime.node.add_dependency(agent_policy)
+        # The runtime writes to /aws/bedrock-agentcore/runtimes/<runtime id>-<endpoint>. Created here (before the
+        # first invocation) so it has a retention period and is deleted with the stack, instead of the
+        # service creating it with "never expire".
+        runtime_log_group = logs.LogGroup(
+            self, "RuntimeLogs",
+            log_group_name=f"/aws/bedrock-agentcore/runtimes/{runtime.attr_agent_runtime_id}-DEFAULT",
+            retention=log_days, removal_policy=RemovalPolicy.DESTROY,
+        )
 
         # ------------------------------------------------------------------ dispatcher Lambda
         orchestrator = deploy.get("orchestrator", "agentcore")
@@ -237,6 +245,7 @@ class VideoEventStack(Stack):
         CfnOutput(self, "MediaBucketName", value=media.bucket_name)
         CfnOutput(self, "AgentRuntimeArn", value=runtime.attr_agent_runtime_arn)
         CfnOutput(self, "AgentRuntimeId", value=runtime.attr_agent_runtime_id)
+        CfnOutput(self, "RuntimeLogGroupName", value=runtime_log_group.log_group_name)
         CfnOutput(self, "DispatcherFunctionName", value=dispatcher.function_name)
         CfnOutput(self, "PipelineConfigParam", value=config_param.parameter_name)
         CfnOutput(self, "DispatchFailureQueueUrl", value=failures.queue_url)
