@@ -22,11 +22,11 @@ generated locally by scripts/gen_synthetic.py and are not committed.
 | Package | Version | Licence (from package metadata) |
 |---|---|---|
 | av (PyAV) | 19.0.1 | BSD-3-Clause (see note on the bundled FFmpeg libraries below) |
-| bedrock-agentcore | 1.24.2 | Apache-2.0 |
-| boto3 / botocore / s3transfer | 1.43.115 / 1.43.115 / 0.19.3 | Apache-2.0 |
+| bedrock-agentcore | 1.24.1 | Apache-2.0 |
+| boto3 / botocore / s3transfer | 1.43.112 / 1.43.112 / 0.19.2 | Apache-2.0 |
 | jsonschema / jsonschema-specifications / referencing / rpds-py | 4.25.1 / 2025.9.1 / 0.37.0 / 2026.9.1 | MIT |
 | pydantic / pydantic_core / annotated-types / typing-inspection | 2.14.1 / 2.50.1 / 0.8.0 / 0.4.4 | MIT |
-| starlette / uvicorn / websockets / click | 1.9.0 / 0.54.0 / 17.3 / 8.5.0 | BSD-3-Clause |
+| starlette / uvicorn / websockets / click | 1.8.0 / 0.54.0 / 17.2 / 8.5.0 | BSD-3-Clause |
 | anyio / h11 / attrs / jmespath / six / urllib3 | 4.15.1 / 0.16.0 / 26.1.0 / 1.1.0 / 1.17.0 / 2.8.0 | MIT |
 | idna | 3.20 | BSD-3-Clause |
 | python-dateutil | 2.9.0.post0 | Dual licence: Apache-2.0 or BSD-3-Clause |
@@ -46,12 +46,12 @@ account; this repository does not distribute it.
 
 | Component | Version | Licence |
 |---|---|---|
-| aws-cdk-lib / constructs / jsii | 2.273.0 / 10.8.1 / 1.142.0 | Apache-2.0 |
+| aws-cdk-lib / constructs / jsii | 2.273.0 / 10.8.1 / 1.141.0 | Apache-2.0 |
 | cdk-nag | 3.0.2 | Apache-2.0 |
 | AWS CDK CLI (npm aws-cdk@2, run with npx) | 2.x | Apache-2.0 |
 | pytest | 9.1.1 | MIT |
-| ruff | 0.17.1 | MIT |
-| Pillow (synthetic set generator) | 13.0.0 | MIT-CMU |
+| ruff | 0.17.0 | MIT |
+| Pillow (synthetic set generator) | 12.3.0 | MIT-CMU |
 | cattrs / typeguard / publication (jsii dependencies) | 26.2.1 / 2.13.3 / 0.0.3 | MIT |
 | ffmpeg command-line tool (local install, used only by scripts/gen_synthetic.py) | as installed | depends on your build (LGPL-2.1+ or GPL-2.0+) |
 

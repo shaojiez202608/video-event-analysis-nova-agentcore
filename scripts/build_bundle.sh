@@ -12,6 +12,7 @@ uv pip install \
   --python-version 3.13 \
   --target build/bundle \
   --only-binary=:all: \
+  --exclude-newer "7 days" \
   --quiet \
   -r src/agent/requirements.txt
 cp -R src/video_events build/bundle/video_events

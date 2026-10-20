@@ -1,5 +1,5 @@
 # Packaged for linux/arm64 by scripts/build_bundle.sh (AgentCore Runtime and Lambda both run arm64).
 av==19.0.1
 jsonschema==4.25.1
-bedrock-agentcore==1.24.2
+bedrock-agentcore==1.24.1
 boto3>=1.43.103
