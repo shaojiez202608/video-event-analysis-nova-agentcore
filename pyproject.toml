@@ -27,10 +27,10 @@ infra = [
 ]
 
 [tool.uv]
-package = false
-default-groups = ["runtime", "dev", "infra"]
 # Supply-chain cooldown: do not resolve package versions published in the last 7 days.
 exclude-newer = "7 days"
+package = false
+default-groups = ["runtime", "dev", "infra"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "src/agent", "src/functions/dispatcher", "infra", "."]
