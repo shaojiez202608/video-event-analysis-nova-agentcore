@@ -104,7 +104,8 @@ def run_suite(manifest_path: str, cfg, model, only: list[str] | None = None, res
     clips = [c for c in doc["clips"] if not only or c["id"] in only]
     store = LocalStore(results_dir) if results_dir else None
     scores, totals = [], {"model_calls": 0, "images_sent": 0, "input_tokens": 0, "output_tokens": 0,
-                          "retries": 0, "validation_failures": 0, "rejected_events": 0, "total_ms": 0}
+                          "retries": 0, "validation_failures": 0, "model_errors": 0, "rejected_events": 0,
+                          "total_ms": 0}
     per_clip = []
     for clip in clips:
         data = (root / clip["file"]).read_bytes()
