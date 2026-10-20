@@ -28,8 +28,8 @@ def test_video_inline_bytes():
 def test_video_s3_location_with_owner():
     m = model()
     content = m.build_content(ModelRequest(kind="video", clip_duration_s=30, seg_start_s=0, seg_end_s=30,
-                                           video_s3_uri="s3://b/k.mp4", video_bucket_owner="<ACCOUNT_ID>"))
-    assert content[0]["video"]["source"] == {"s3Location": {"uri": "s3://b/k.mp4", "bucketOwner": "<ACCOUNT_ID>"}}
+                                           video_s3_uri="s3://b/k.mp4", video_bucket_owner="111122223333"))
+    assert content[0]["video"]["source"] == {"s3Location": {"uri": "s3://b/k.mp4", "bucketOwner": "111122223333"}}
 
 
 def test_frames_interleaved_with_timestamps():

@@ -1,7 +1,7 @@
 """Result storage: one JSON document per clip.
 
 Key layout (same for local directory and S3):
-    results/<camera_id>/<YYYY-MM-DD (UTC)>/<video_id>.json
+    results/<CAMERA_ID>/<YYYY-MM-DD (UTC)>/<VIDEO_ID>.json
 """
 
 from __future__ import annotations

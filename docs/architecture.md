@@ -1,5 +1,8 @@
 # Architecture
 
+Describes version 0.1.0 (git tag `v0.1.0`). The mermaid diagrams below are the source of truth for the
+architecture; there are no separately maintained images.
+
 ## Components
 
 ```mermaid
@@ -35,6 +38,32 @@ flowchart TD
     PP --> W[(results/...json)]
     PP --> E[EMF metrics + content-free logs]
 ```
+
+## Trust boundaries
+
+| Boundary | Who is on each side | Control |
+|---|---|---|
+| Uploader → S3 `uploads/` | IAM principals with `s3:PutObject` (operators) / this account | Bucket deny policy for other principals, TLS only, key pattern check in code |
+| S3 event → dispatcher Lambda | S3 service / function | Lambda permission scoped to the bucket; async retries 0; failures to SQS |
+| Dispatcher → AgentCore Runtime | dispatcher role / runtime | SigV4; runtime resource policy (dispatcher + operators only) |
+| Operator → Runtime (`ask`, `search`, `daily_summary`) | IAM operator / runtime | SigV4; resource policy; camera scope from the request (no end-user auth: THREAT_MODEL R3) |
+| Runtime → Nova (Bedrock) | runtime role / Bedrock | `bedrock:InvokeModel` on the configured model only; output treated as untrusted and validated |
+| Video content → model | untrusted pixels and visible text / model | fixed orchestration, no side-effecting tools, hard validation |
+| Runtime → S3 `results/`, `frames/` | runtime role | prefix-scoped IAM; lifecycle expiry |
+
+## Deployment topology
+
+One CloudFormation stack in one region (default us-east-1), no VPC resources:
+
+- Regional: S3 media and access-log buckets, Lambda dispatcher (arm64) with EventInvokeConfig and an
+  SQS failure queue, AgentCore Runtime (PUBLIC network mode, DEFAULT endpoint) with its resource
+  policy, SSM parameter, CloudWatch log groups (Lambda in the stack; runtime log group created by the
+  service and managed by a custom resource), CDK custom resources (bucket notifications, auto-delete,
+  log retention).
+- Global: IAM roles and inline policies.
+- Bedrock calls go through the `us.` inference profile, which can route to us-east-1, us-east-2 and
+  us-west-2 (model card, fact F1).
+- Code assets live in the account's CDK bootstrap assets bucket (shared; not part of the stack).
 
 ## Code layout
 

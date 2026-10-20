@@ -45,10 +45,10 @@ class VideoMeta:
 
     @classmethod
     def from_key(cls, key: str) -> VideoMeta:
-        """Parse uploads/<camera_id>/<YYYYMMDDTHHMMSSZ>_<name>.<ext>."""
+        """Parse uploads/<CAMERA_ID>/<YYYYMMDDTHHMMSSZ>_<NAME>.<EXT>."""
         m = KEY_RE.match(key)
         if not m:
-            raise ValueError("object key does not match uploads/<camera_id>/<YYYYMMDDTHHMMSSZ>_<name>.<ext>")
+            raise ValueError("object key does not match uploads/<CAMERA_ID>/<YYYYMMDDTHHMMSSZ>_<NAME>.<EXT>")
         ts = datetime.strptime(m["ts"], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
         return cls(
             video_id=f"{m['camera']}-{m['ts']}-{m['name']}",

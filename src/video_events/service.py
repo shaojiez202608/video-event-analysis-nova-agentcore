@@ -1,7 +1,7 @@
 """Application service shared by the AgentCore entrypoint and the Lambda fallback.
 
 Payload actions:
-  {"action": "analyze", "bucket": "...", "key": "uploads/<cam>/<ts>_<name>.mp4", "overrides": {...}}
+  {"action": "analyze", "bucket": "...", "key": "uploads/<CAMERA_ID>/<TS>_<NAME>.mp4", "overrides": {...}}
   {"action": "ask", "question": "...", "camera_ids": ["cam1"], "now": "ISO-8601 (optional)"}
   {"action": "search", "query": "...", "camera_ids": [...]}
   {"action": "daily_summary", "date": "YYYY-MM-DD", "camera_ids": [...]}

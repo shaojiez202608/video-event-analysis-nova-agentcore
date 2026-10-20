@@ -15,11 +15,11 @@
 | D9 | 多语言文案用固定模板 + 白名单字段渲染，不让模型翻译自由文本 | 再调用一次模型翻译摘要 | 不增加调用量；避免把模型自由文本二次加工；译文需母语者复核。 |
 | D10 | 自定义关注规则是结构化配置（地点/主体/类型/等级/本地时段），不是自然语言 | 用 LLM 把「只关注门口人员」解析成规则 | 结构化规则可校验、可测试；自然语言到规则的转换放入 backlog。 |
 | D11 | 智能问答：mock 模式用关键字解析 + 模板回答；bedrock 模式用 Nova + 单一只读工具，工具入参先过 JSON schema，返回给模型的只有枚举字段与时间，不含自由文本描述 | 把事件描述原文交给模型 | 防止「视频 → 描述 → 问答」链路上的二次提示注入。 |
-| D12 | 结果存 S3 JSON（`results/<camera>/<date>/<video>.json`），不建数据库 | DynamoDB / OpenSearch | 原型规模小；少一类资源少一类残留。规模化检索列入 backlog。 |
+| D12 | 结果存 S3 JSON（`results/<CAMERA_ID>/<DATE>/<VIDEO_ID>.json`），不建数据库 | DynamoDB / OpenSearch | 原型规模小；少一类资源少一类残留。规模化检索列入 backlog。 |
 | D13 | S3 用 SSE-S3（AES256），不建 KMS 客户托管密钥 | KMS CMK | 满足「服务端加密」；KMS 密钥删除有等待期，会在沙箱留下「计划删除」状态的资源。上生产时按数据分类评估 CMK（handover 加固清单）。 |
 | D14 | 不暴露任何公网入口（无 API Gateway/函数 URL）；入口只有 S3 上传事件和 IAM SigV4 调用 `InvokeAgentRuntime` | API Gateway + Cognito | 「默认不暴露公网入口」。演示脚本用 AWS CLI/boto3 以 IAM 身份调用。 |
 | D15 | AgentCore Runtime 网络模式 `PUBLIC`（出站访问 AWS 服务端点）；入站只接受 IAM 签名请求 | VPC 模式 | 原型不需要访问私有资源；VPC 模式要多建 VPC/子网/端点，残留与成本维度都增加。上生产可评估 VPC 模式。 |
-| D16 | 分发 Lambda 的异步重试设为 0，失败事件进入 SQS 失败目的地（`<prefix>-dispatch-failures`） | 默认重试 2 次；不设失败目的地 | 避免同一视频被重复分析（重复调用模型）。请求类错误（坏键、非本栈桶）重试也无用，只记日志；内部错误（Runtime 调用异常、S3/SSM 错误）让调用失败，事件进入队列，可人工重放。 |
+| D16 | 分发 Lambda 的异步重试设为 0，失败事件进入 SQS 失败目的地（`<PREFIX>-dispatch-failures`） | 默认重试 2 次；不设失败目的地 | 避免同一视频被重复分析（重复调用模型）。请求类错误（坏键、非本栈桶）重试也无用，只记日志；内部错误（Runtime 调用异常、S3/SSM 错误）让调用失败，事件进入队列，可人工重放。 |
 | D17 | 资源命名：栈 `proto-video-event-analysis`，Lambda `proto-video-dispatcher`，SSM `/proto-video/pipeline-config`；AgentCore Runtime 名称不允许连字符（CloudFormation schema 模式 `[a-zA-Z][a-zA-Z0-9_]{0,47}`），因此用 `proto_video_event_agent` | — | 项目约定资源以 `proto-video-` 开头（栈名、参数名由 `deploy.stack_name`、`deploy.resource_prefix` 配置）；Runtime 名称是唯一例外，原因是服务的命名约束。 |
 | D18 | 可删除策略做成参数：`config/params.json`（沙箱）`removal_policy=destroy`；`config/params.customer.example.json`（交付默认）`retain` | 固定一种 | 沙箱需要能干净销毁，交付环境默认保留数据（项目约定）。 |
 | D19 | 抽帧默认不落盘（`persist_frames=false`）；若打开，帧写入 `frames/` 前缀并由生命周期规则按 `frame_retention_days` 删除；原始视频与结果也有各自的生命周期 | 帧一律落盘 | FR-7 隐私默认值。S3 生命周期的最小粒度是天，因此「保留时长」以天配置。 |
@@ -35,3 +35,13 @@
 | D29 | AgentCore Runtime 日志组由服务在创建 Runtime 时自建；栈用 `AwsCustomResource` 在 Runtime 建好后设置保留期、销毁时删除 | 在栈里声明 `AWS::Logs::LogGroup`；部署后手工设置 | 实测声明同名 LogGroup 会因 `AlreadyExists` 部署失败（DEPLOYMENT-LOG）。自定义资源只获得该日志组的 `PutRetentionPolicy` / `DeleteLogGroup` 权限。 |
 | D30 | 抽帧在最后一个不完整区间的中点也采一帧（尾段短于 0.1 s 忽略） | `floor(时长/间隔)`（旧行为） | 旧算法在时长不是间隔整数倍时完全不看片段结尾（3.9 s / 2 s 只采 1.0 s 一帧）。 |
 | D31 | 每日摘要、检索与 S3 读取上限：结果超过 `max_objects`（500）或命中超过 `limit` 时返回 `truncated=true` 并在回答里提示 | 静默截断（旧行为） | 不完整的答案必须让用户知道。 |
+| D32 | LICENSE 为 MIT-0，版权行 `Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.`；git 作者仍为 `shaojiez <shaojiez@example.invalid>` | 个人版权行（审查修复轮的做法） | 规范对齐轮的统一决定（aws-samples 惯例）。 |
+| D33 | 参数文件以模板入库（`config/params.example.json`、`config/params.customer.example.json`），真实文件 `config/params.json` 被 gitignore，由 `make init` 复制；synth 前校验全部参数与联动规则；账号 ID 只来自凭证环境，运维身份 ARN 只经 `-c operator_principal_arns` 传入 | 直接提交真实参数文件 | 防止真实配置与账号 ID 入库；非法值在创建任何资源之前失败。 |
+| D34 | Runtime 资源策略：只允许分发角色与部署时传入的运维身份调用，其余主体与所有 `*ForUser` 动作显式拒绝；媒体桶拒绝其他主体直接读写对象（`aws:ViaAWSService=false` 时） | 只靠身份策略 | 敏感资源再加一层「只允许预期调用方」。服务代表调用方访问（例如 Bedrock 按 S3 URI 读视频）按调用方身份评估，不被误拒。 |
+| D35 | Runtime 执行角色信任策略同时带 `aws:SourceAccount` 与收窄到 `runtime/<名称>-*` 的 `aws:SourceArn`；分发 Lambda 角色信任策略保持 Lambda 官方文档的写法（无条件键） | Lambda 角色也加条件键 | AgentCore 官方文档给出这两个条件键（账号级 `...:*`），本项目进一步收窄；Lambda 执行角色指南没有为执行角色给出这些条件键，贸然添加可能导致函数无法承担角色。理由与链接见 SECURITY-NOTES。 |
+| D36 | 删除 Runtime 角色的 `GetWorkloadAccessToken*` 权限；补上官方执行角色中的 `logs:PutResourcePolicy`（限本 Runtime 的日志组） | 保留官方示例的全部动作 | 代码从不获取工作负载令牌或做出站 OAuth；2025-10-13 之后创建的 Runtime 由服务关联角色获取自身令牌。部署验证中调用全部成功（VERIFICATION）。 |
+| D37 | 会产生费用的命令（真实模型评测、端到端、故障演练）需要 `ALLOW_PAID=1`；`cdk diff` 含删除或替换时需要 `ALLOW_DESTRUCTIVE=1`；预检只读并要求确认账号末 4 位 | 不设开关 | 规范要求；防止误在错误账号部署或误产生费用。 |
+| D38 | 评测集加版本号（manifest `version`），并加故意做错的反例模型（`WrongVisionModel`）：反例必须被评测判为失败，否则评测本身有问题 | 只评测正常模型 | 证明评测能报出失败。 |
+| D39 | 共享 CDK bootstrap 资产桶中只删除属于本项目的对象：当前构建按 `cdk.out/<栈>.assets.json`，更早的构建按 `infra/bootstrap-asset-keys.txt`（由当时的 assets.json 或对象内容确认），删除所有版本；CDK 通用 provider 包与 CDKToolkit 栈不动，识别不出的不删并列为残留 | 一律不删；按时间删除 | 规范第 10 条。 |
+| D40 | 没有 Docker：继续用直接代码部署（arm64 wheel zip）；ASH 中需要 Docker 或未安装的扫描器标为「未运行」交给 CI；`.dockerignore` 不适用 | 安装 Docker 或大量本地扫描器 | 维护者约定本机不装 Docker。 |
+| D41 | 不设置 OpenTelemetry `trace_attributes`、不开启 Transaction Search | 引入 ADOT | 没有使用智能体框架，观测靠结构化日志与 EMF；Transaction Search 是账号级设置，交给账号所有者（OPEN-QUESTIONS Q15）。 |

@@ -1,5 +1,7 @@
 # Threat model
 
+**Status: DRAFT** (not yet reviewed by the system owner; version 0.1.0).
+
 Scope: this prototype as deployed by `infra/` (S3 media bucket, dispatcher Lambda,
 AgentCore Runtime, Amazon Nova through Bedrock, SSM parameter) and the local mock
 mode. Method: data-flow review with STRIDE-style prompts. The model is treated as
@@ -52,7 +54,7 @@ are validated against a JSON schema and a maximum time window before execution.
   no camera field and rejects unknown keys (`additionalProperties: false`). A question such as "show the
   neighbour's camera" cannot widen the scope.
 - `analyze` accepts only the configured media bucket and keys matching
-  `uploads/<camera>/<timestamp>_<name>.<ext>`; path traversal characters are rejected. Overrides are limited
+  `uploads/<CAMERA_ID>/<TIMESTAMP>_<NAME>.<EXT>`; path traversal characters are rejected. Overrides are limited
   to sampling parameters (no model id, no bucket, no prompt changes).
 - IAM: the runtime role can read `uploads/*` and `results/*`, write `results/*` and `frames/*`, invoke one
   model (plus its inference profile), and read one SSM parameter. With the default `orchestrator=agentcore`
@@ -61,6 +63,9 @@ are validated against a JSON schema and a maximum time window before execution.
   `s3:GetObject` on `uploads/*`, `s3:PutObject` on `results/*` and `frames/*`, and `ssm:GetParameter`**,
   so a compromise of the Lambda then has the same data reach as the runtime. No `s3:*`, `bedrock:*` or IAM
   write permissions in either mode.
+- The runtime resource policy allows `InvokeAgentRuntime` only for the dispatcher role and the
+  operator ARNs given at deploy time and explicitly denies everyone else and every `*ForUser` action;
+  the media bucket denies direct object access to any other principal (SECURITY-NOTES.md).
 - **Gap:** there is no end-user authentication. Whoever holds IAM permission to call `InvokeAgentRuntime`
   can query any camera id in the bucket. Production needs an authorizer (for example JWT inbound auth on
   AgentCore Runtime) that binds camera ids to the authenticated user.

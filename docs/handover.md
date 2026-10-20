@@ -10,8 +10,9 @@ and simple Q&A, search and daily summary over the stored results. **It is not fo
 
 ## How to run it
 
-- Locally, without AWS: `uv sync && uv run pytest` and the demo in demo-script.md part A.
-- Deployed: deployment-guide.md. Remove it again with cleanup.md.
+- Locally, without AWS: `make init test` and the demo in demo-script.md part A.
+- Deployed: README "Deploy", "Use and verify" and "Clean up" (`make deploy`, `ALLOW_PAID=1 make verify`,
+  `make destroy`, `make verify-cleanup`).
 
 ## Defaults that differ between sandbox and hand-over
 
@@ -64,7 +65,11 @@ with the data owner before any use beyond synthetic data.
 12. **Runtime versions.** Move the Lambda and the AgentCore runtime together to the newest Python
     runtime when the arm64 wheels are available (the cdk-nag L1 acknowledgement).
 13. **Observability.** Add dashboards and alarms on the EMF metrics (`VideoEventAnalysis`
-    namespace) and enable AgentCore observability if traces are needed.
+    namespace) and enable AgentCore observability if traces are needed. AgentCore traces need
+    CloudWatch Transaction Search, an **account-level** setting this project does not change
+    (OPEN-QUESTIONS Q15); spans appear only some minutes after it is enabled. The code sets no
+    OpenTelemetry `trace_attributes` (no agent framework is used); add session ids as trace
+    attributes if ADOT is introduced.
 14. **Retain by default.** Use the hand-over parameter file (`removal_policy=retain`).
 
 ## Backlog (not implemented)

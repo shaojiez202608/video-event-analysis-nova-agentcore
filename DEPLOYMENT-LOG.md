@@ -43,7 +43,7 @@
 - `AWS::SSM::Parameter`（`/proto-video/pipeline-config`）
 - `AWS::CDK::Metadata`
 
-栈外、由服务在运行时创建的：Runtime 日志组 `/aws/bedrock-agentcore/runtimes/proto_video_event_agent-<id>-DEFAULT`（部署后实测保留期 7 天，由自定义资源设置）、工作负载身份 `proto_video_event_agent-<id>`、3 个 CDK 托管 Lambda 的日志组（无保留期）、CloudWatch 自定义指标（命名空间 `VideoEventAnalysis`）。
+栈外、由服务在运行时创建的：Runtime 日志组 `/aws/bedrock-agentcore/runtimes/proto_video_event_agent-<RUNTIME_SUFFIX>-DEFAULT`（部署后实测保留期 7 天，由自定义资源设置）、工作负载身份 `proto_video_event_agent-<RUNTIME_SUFFIX>`、3 个 CDK 托管 Lambda 的日志组（无保留期）、CloudWatch 自定义指标（命名空间 `VideoEventAnalysis`）。
 
 ### 验证结果
 

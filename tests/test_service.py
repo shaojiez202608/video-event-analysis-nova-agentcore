@@ -94,7 +94,7 @@ def test_dispatcher_agentcore_mode(monkeypatch):
             return {"response": io.BytesIO(json.dumps({"status": "ok", "events": 1,
                                                        "metrics": {"model_calls": 1}}).encode())}
 
-    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/x")
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:111122223333:runtime/x")
     monkeypatch.setattr(dispatcher, "_agentcore", FakeAgentCore())
     event = {"Records": [{"s3": {"bucket": {"name": "media-bucket"},
                                  "object": {"key": "uploads/cam/20261019T081200Z_a+b.mp4"}}}]}
@@ -151,7 +151,7 @@ def test_dispatcher_raises_on_internal_failure(monkeypatch):
         def invoke_agent_runtime(self, **kw):
             raise TimeoutError("read timeout")
 
-    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/x")
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:111122223333:runtime/x")
     monkeypatch.setattr(dispatcher, "_agentcore", Failing())
     event = {"Records": [{"s3": {"bucket": {"name": "media-bucket"},
                                  "object": {"key": "uploads/cam/20261019T081200Z_a.mp4"}}}]}

@@ -50,9 +50,9 @@ About 15 minutes. Part A needs no AWS account. Part B needs a deployed stack.
 
 ## Part B: deployed (AWS, real Nova)
 
-1. Deploy (see deployment-guide.md), then run:
+1. Deploy (README "Deploy"), then run (calls Bedrock, so it needs `ALLOW_PAID=1`):
    ```bash
-   uv run python scripts/e2e_aws.py --clips s01_empty_home s03_delivery s05_fire_yard s14_injection_text
+   ALLOW_PAID=1 uv run python scripts/e2e_aws.py --clips s01_empty_home s03_delivery s05_fire_yard s14_injection_text
    ```
 2. Walk through the output:
    - The `health` actions report an arm64 machine and the PyAV version inside AgentCore Runtime and Lambda.
@@ -63,7 +63,9 @@ About 15 minutes. Part A needs no AWS account. Part B needs a deployed stack.
 3. Show CloudWatch Logs for the dispatcher. The lines hold only ids, counts and timings, with no descriptions or summaries.
 4. Run the real-model evaluation:
    ```bash
-   uv run python scripts/evaluate.py --mode bedrock
-   uv run python scripts/compare_strategies.py --mode bedrock --grid small
+   ALLOW_PAID=1 uv run python scripts/evaluate.py --mode bedrock
+   ALLOW_PAID=1 make eval-bedrock        # 3 runs per configuration, mean and spread
    ```
-5. Clean up (cleanup.md).
+5. Show the failure drill (`ALLOW_PAID=1 uv run python scripts/failure_drill_aws.py`) and the negative
+   control (`uv run python scripts/evaluate.py --mode mock --negative-control`).
+6. Clean up (README "Clean up").
