@@ -1,0 +1,16 @@
+# Object keys of this project's own assets from earlier deployments, in the shared CDK bootstrap
+# assets bucket (cdk-hnb659fds-assets-<ACCOUNT>-<REGION>). The current build's keys are read from
+# cdk.out/<stack>.assets.json; CDK's generic provider packages are never listed here.
+# Used by scripts/cleanup.sh (delete) and scripts/verify_cleanup.py (check). One key per line.
+# Earlier prototype version (first deployment, code package and Lambda bundle of that build):
+36fb1e9eae3d1bc2e722fb4581fa96d6a0c9072e994ee372131be710fcdf94bf.zip
+3d048c4d5ae72ffd29d0edb0c798bed37849bd42ebdde5627b2c7b4f899f2bbd.zip
+# Earlier prototype version (second deployment):
+4b31e16937773d871c9df7014f4fe014567e9c722ccd9c3ba665fd81050c4724.zip
+f38fd6b616f5baab474effead3dca04d5d40b3901d04ac66b75a419c5afb6584.zip
+14ba07f11619485220cd3418d08c04dacce1981ca565424421167c2913ebebf0.json
+# Review-fix round (2026-10-20):
+9e165fd8434034f1e0b0a7ef8647a6fefd6c79ae03d11c01efd66617a1a701b6.zip
+d0c49c605c0a5d6c85a22ab81e6634e4d786def127802b5f9bcc12af8dd51516.zip
+4b7286ab973ec7ea280114ad998cfd02748f32fad9434cff0b95b138f573b1c5.json
+a2fab645bb0362cff3f1eedca1a8ce48f53e3f9906bad66fbf3a529a98a3a1de.json

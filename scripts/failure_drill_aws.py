@@ -34,6 +34,7 @@ import boto3
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from e2e_aws import mask, outputs  # noqa: E402
+from guards import require_paid  # noqa: E402
 
 from video_events.pipeline import VideoMeta  # noqa: E402
 from video_events.store import result_key  # noqa: E402
@@ -79,6 +80,7 @@ def main() -> None:
     ap.add_argument("--report")
     ap.add_argument("--since-hours", type=float, default=12.0, help="log scan window")
     args = ap.parse_args()
+    require_paid("failure_drill_aws.py")
     deploy = json.loads(Path(args.params).read_text())["deploy"]
     region = deploy.get("region") or "us-east-1"
     out = outputs(deploy["stack_name"], region)

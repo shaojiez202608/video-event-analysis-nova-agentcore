@@ -26,6 +26,9 @@ from video_events.evaluation import run_suite  # noqa: E402
 from video_events.models import MockVisionModel, make_model  # noqa: E402
 from video_events.prompts import SYNTHETIC_EVAL_HINT  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from guards import require_paid  # noqa: E402
+
 GRIDS = {
     "full": [("video", None, None)] + [("frames", i, s) for i in (0.5, 1.0, 2.0, 4.0) for s in (5.0, 10.0, 0.0)],
     "small": [("video", None, None), ("frames", 1.0, 10.0), ("frames", 2.0, 0.0), ("frames", 4.0, 0.0)],
@@ -61,6 +64,8 @@ def main() -> None:
     ap.add_argument("--repeat", type=int, default=1, help="run each configuration N times (model variance)")
     ap.add_argument("--out", help="write JSON rows here")
     args = ap.parse_args()
+    if args.mode == "bedrock":
+        require_paid("compare_strategies.py --mode bedrock")
     base = load_config(args.config).with_overrides(
         model_mode=args.mode, output_mode=args.output_mode, prompt_hint="" if args.no_hint else SYNTHETIC_EVAL_HINT)
     rows = []

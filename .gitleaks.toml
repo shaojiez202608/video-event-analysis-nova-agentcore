@@ -1,0 +1,11 @@
+# gitleaks configuration: the default rule set, no exceptions.
+# The full history and the working tree have no findings, so nothing is allowlisted. Any future
+# exception must name one rule id and one path (or one commit) and give the reason next to it, e.g.
+#   [[allowlists]]
+#   description = "<WHY THIS IS NOT A SECRET>"
+#   targetRules = ["<RULE_ID>"]
+#   paths = ['''^<EXACT/PATH>$''']
+title = "video-event-analysis"
+
+[extend]
+useDefault = true

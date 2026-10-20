@@ -3,14 +3,14 @@
     uv run python scripts/e2e_aws.py --clips s01_empty_home s03_delivery s05_fire_yard
     uv run python scripts/e2e_aws.py --all
 
-Prints only masked identifiers: 12-digit numbers are replaced with <ACCOUNT_ID>.
+Prints only masked identifiers: 12-digit numbers are replaced with 111122223333. Needs ALLOW_PAID=1
+(the deployed runtime calls Amazon Bedrock).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
 import uuid
@@ -25,9 +25,12 @@ from video_events.evaluation import aggregate, score_clip  # noqa: E402
 from video_events.schema import RESULT_SCHEMA  # noqa: E402
 from video_events.store import result_key  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from guards import mask_text, require_paid  # noqa: E402
+
 
 def mask(obj) -> str:
-    return re.sub(r"\b\d{12}\b", "<ACCOUNT_ID>", json.dumps(obj, ensure_ascii=False, default=str))
+    return mask_text(json.dumps(obj, ensure_ascii=False, default=str))
 
 
 def outputs(stack: str, region: str) -> dict:
@@ -54,6 +57,7 @@ def main() -> None:
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--report", help="write a JSON report here")
     args = ap.parse_args()
+    require_paid("e2e_aws.py")
     deploy = json.loads(Path(args.params).read_text())["deploy"]
     args.stack = args.stack or deploy["stack_name"]
     args.region = args.region or deploy.get("region") or "us-east-1"
