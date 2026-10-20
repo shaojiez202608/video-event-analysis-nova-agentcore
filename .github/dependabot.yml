@@ -1,0 +1,32 @@
+# Weekly, grouped, never auto-merged. A cooldown gives new releases a week before a PR is opened.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      cdk:
+        patterns: ["aws-cdk-lib", "constructs", "cdk-nag"]
+      runtime:
+        patterns: ["boto3", "botocore", "bedrock-agentcore", "jsonschema"]
+      media:
+        # av (PyAV) bundles FFmpeg and parses untrusted media: review these updates on their own.
+        patterns: ["av", "pillow"]
+      dev:
+        patterns: ["pytest", "ruff"]
+    ignore:
+      # Python 3.13 is kept on purpose: the Lambda and the AgentCore runtime (PYTHON_3_13) share one
+      # arm64 wheel bundle (DECISIONS D4, SECURITY-NOTES L1). Do not take wheels that drop 3.13.
+      - dependency-name: "python"
