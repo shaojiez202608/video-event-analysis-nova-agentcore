@@ -136,7 +136,7 @@ def test_repo_param_files_validate():
     from video_events.config import PipelineConfig
 
     root = Path(__file__).resolve().parents[1] / "config"
-    for name in ("params.json", "params.customer.example.json"):
+    for name in ("params.example.json", "params.customer.example.json"):
         PipelineConfig.from_dict(json.loads((root / name).read_text())["pipeline"])
 
 

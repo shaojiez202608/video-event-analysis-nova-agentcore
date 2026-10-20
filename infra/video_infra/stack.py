@@ -27,6 +27,8 @@ from aws_cdk import aws_ssm as ssm
 from aws_cdk import custom_resources as cr
 from constructs import Construct
 
+from .params import agent_name_for
+
 ROOT = Path(__file__).resolve().parents[2]
 VIDEO_SUFFIXES = (".mp4", ".mov", ".mkv", ".webm")
 
@@ -90,7 +92,7 @@ class VideoEventStack(Stack):
         )
 
         # ------------------------------------------------------------------ AgentCore Runtime
-        agent_name = prefix.replace("-", "_") + "_event_agent"  # runtime names allow [a-zA-Z0-9_]
+        agent_name = agent_name_for(prefix)  # runtime names allow [a-zA-Z0-9_]
         code_asset = s3_assets.Asset(self, "AgentCode", path=str(agent_zip))
 
         model_id = pipeline["model_id"]

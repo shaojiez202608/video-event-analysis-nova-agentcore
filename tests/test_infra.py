@@ -15,7 +15,7 @@ def _synth(tmp, mutate=None):
     (tmp / "bundle" / "dispatcher_handler.py").write_text("def handler(e, c):\n    return {}\n")
     with zipfile.ZipFile(tmp / "agent.zip", "w") as z:
         z.writestr("main.py", "print('x')\n")
-    params = json.loads((ROOT / "config" / "params.json").read_text())
+    params = json.loads((ROOT / "config" / "params.example.json").read_text())
     if mutate:
         mutate(params)
     deploy = dict(params["deploy"], bundle_dir=str(tmp / "bundle"), agent_zip=str(tmp / "agent.zip"))

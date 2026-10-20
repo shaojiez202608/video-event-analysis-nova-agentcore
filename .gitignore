@@ -14,3 +14,9 @@ out/
 .DS_Store
 .env
 *.pem
+# Live parameter file (copy of config/params.example.json, created by `make init`)
+config/params.json
+cdk.context.json
+.env*
+!.env.example
+*.local.json
