@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import tempfile
 from datetime import UTC, datetime
 from typing import Any
 
@@ -79,7 +80,8 @@ def analyze_s3_object(bucket: str, key: str, overrides: dict | None = None, s3=N
         video = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
     else:
         # Large clip with the native video strategy: probe from a temp file, send by S3 URI.
-        path = f"/tmp/{meta.video_id[:80]}.{meta.video_format}"  # noqa: S108 - per-invocation scratch file
+        fd, path = tempfile.mkstemp(suffix=f".{meta.video_format}")
+        os.close(fd)
         s3.download_file(bucket, key, path)
         video = path
     from .frames import probe

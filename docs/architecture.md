@@ -107,11 +107,17 @@ images sent, frames sampled, segments, rejected events, model latency and total 
 | F10 | Each AgentCore Runtime session runs in its own microVM, which is terminated after the session ends. Session ids must be at least 33 characters. Idle sessions stop after a configurable timeout. | [Use isolated sessions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-sessions.html) | 2026-10-20 |
 | F11 | The Lambda `python3.13` runtime runs on Amazon Linux 2023. All supported runtimes support arm64. AWS recommends bundling the SDK in the package instead of relying on the runtime-included version. | [Lambda runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html) | 2026-10-20 |
 | F12 | PyAV 19.0.1 on PyPI ships `manylinux_2_28_aarch64` wheels (BSD-3-Clause), so frame sampling needs no Docker build or separate ffmpeg binary. Import inside the deployed Lambda and AgentCore Runtime is checked by the `health` action (see VERIFICATION.md). | [PyPI: av](https://pypi.org/project/av/) | 2026-10-20 |
+| F14 | Nova supports `toolChoice` values `tool` (the specified tool is called once, recommended for structured output), `any` and `auto`. It uses constrained decoding against the tool's input schema. (In our runs this still did not guarantee that required fields were present, so the output is validated anyway.) | [Nova 2 using tools](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-tools.html) | 2026-10-20 |
+| F15 | `AWS::BedrockAgentCore::Runtime` `AuthorizerConfiguration` accepts a `CustomJWTAuthorizer`, which is the hardening path for end-user auth. | CloudFormation resource schema (describe-type, us-east-1) | 2026-10-20 |
+| F16 | CloudWatch metrics cannot be deleted. They expire automatically when no new data arrives. | [CloudWatch metrics concepts](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html) | 2026-10-20 |
 | F13 | Converse tool use: `toolConfig.tools[].toolSpec` with a JSON `inputSchema`, `stopReason == "tool_use"`, results returned as `toolResult`. | [Nova 2 code library](https://docs.aws.amazon.com/nova/latest/nova2-userguide/code-library.html) ("Tool use") | 2026-10-20 |
 
-Statements removed because they could not be verified: none of the documented claims above were
-dropped, but this repository makes no statement about AgentCore Runtime regional availability
-beyond us-east-1, where the CloudFormation type exists and the deployment was run.
+Removed because they could not be verified on official pages: none of the claims above. The
+repository says nothing about AgentCore Runtime availability in regions other than us-east-1. That
+is the region where the CloudFormation type was checked and the deployment ran. Two statements
+from the brief were checked by running them, not by reading docs: that PyAV works on arm64 Lambda
+and on AgentCore Runtime (the `health` action in VERIFICATION/DEPLOYMENT-LOG), and the glibc
+version in both environments.
 
 Pricing and quotas: billing dimensions only. Nova is charged per input and output token, with
 video and images counted as input tokens. AgentCore Runtime has its own billing dimensions, as do
