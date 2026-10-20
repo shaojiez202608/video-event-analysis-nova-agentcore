@@ -112,3 +112,48 @@ def test_dispatcher_lambda_mode(monkeypatch):
     event = {"Records": [{"s3": {"bucket": {"name": "other"}, "object": {"key": "uploads/x.mp4"}}}]}
     out = dispatcher.handler(event, None)
     assert out["outcomes"][0]["error"] == "PermissionError"
+
+
+def test_model_error_still_stores_fallback_result(synthetic_set, monkeypatch):
+    from test_pipeline import _FlakyModel
+
+    data, clip = clip_bytes(synthetic_set, "s03_delivery")
+    s3 = FakeS3({("media-bucket", clip["s3_key"]): data})
+    monkeypatch.setattr(service, "make_model", lambda cfg: _FlakyModel({1, 2, 3}))
+    out = service.analyze_s3_object("media-bucket", clip["s3_key"], s3=s3)
+    assert out["status"] == "fallback"
+    stored = json.loads(s3.puts[("media-bucket", out["result_key"])])
+    assert stored["needs_review"] is True and stored["fallback_reason"] == "model_error:ThrottlingException"
+
+
+def test_undecodable_upload_stores_fallback_result():
+    key = "uploads/cam/20261019T081200Z_broken.mp4"
+    s3 = FakeS3({("media-bucket", key): b"not a video at all" * 10})
+    out = service.analyze_s3_object("media-bucket", key, s3=s3)
+    assert out["status"] == "fallback"
+    stored = json.loads(s3.puts[("media-bucket", out["result_key"])])
+    assert stored["fallback_reason"].startswith("undecodable_video:")
+
+
+def test_safe_handle_unexpected_error_returns_type_only(monkeypatch):
+    def boom(payload):
+        raise RuntimeError("frame shows a red car at the gate")
+
+    monkeypatch.setattr(service, "handle", boom)
+    out = service.safe_handle({"action": "analyze"})
+    assert out == {"error": "RuntimeError", "internal": True}
+
+
+def test_dispatcher_raises_on_internal_failure(monkeypatch):
+    import handler as dispatcher
+
+    class Failing:
+        def invoke_agent_runtime(self, **kw):
+            raise TimeoutError("read timeout")
+
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:runtime/x")
+    monkeypatch.setattr(dispatcher, "_agentcore", Failing())
+    event = {"Records": [{"s3": {"bucket": {"name": "media-bucket"},
+                                 "object": {"key": "uploads/cam/20261019T081200Z_a.mp4"}}}]}
+    with pytest.raises(dispatcher.DispatchFailed):
+        dispatcher.handler(event, None)

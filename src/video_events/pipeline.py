@@ -21,6 +21,13 @@ from .schema import SCHEMA_VERSION
 from .taxonomy import max_level
 from .validation import ResponseInvalid, merge_events, parse_json_text, validate_model_output
 
+try:  # botocore is always present with boto3; keep the mock path importable without it
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    _MODEL_ERRORS: tuple[type[BaseException], ...] = (ClientError, BotoCoreError)
+except ImportError:  # pragma: no cover
+    _MODEL_ERRORS = ()
+
 log = logging.getLogger("video_events")
 
 KEY_RE = re.compile(
@@ -74,14 +81,37 @@ def plan_segments(frames: list[SampledFrame], duration_s: float, segment_len_s: 
     return segs
 
 
+class ModelCallFailed(RuntimeError):
+    """A model call raised (throttling, access denied, timeout ...). The message holds the error code only."""
+
+
+def _error_code(exc: BaseException) -> str:
+    resp = getattr(exc, "response", None)
+    code = resp.get("Error", {}).get("Code") if isinstance(resp, dict) else None
+    return str(code or type(exc).__name__)[:64]
+
+
 def _call_with_validation(model: VisionModel, req: ModelRequest, cfg: PipelineConfig, metrics: dict):
-    """One logical call with up to cfg.max_retries re-asks on invalid output."""
-    last_err = None
+    """One logical call with up to cfg.max_retries re-asks on invalid output.
+
+    Returns a ValidatedOutput, or the exception that describes why this segment failed. Exceptions
+    raised by the model client (botocore ClientError / BotoCoreError, for example ThrottlingException
+    after the SDK's own retries) are treated as a failed segment, so the clip still gets a
+    partial or fallback result instead of being dropped.
+    """
+    last_err: Exception | None = None
     for attempt in range(cfg.max_retries + 1):
         if attempt:
             metrics["retries"] += 1
             req.retry_hint = str(last_err)[:200]
-        resp = model.analyze(req)
+        try:
+            resp = model.analyze(req)
+        except _MODEL_ERRORS as exc:
+            metrics["model_calls"] += 1
+            metrics["model_errors"] += 1
+            code = _error_code(exc)
+            log_event("model_call_failed", attempt=attempt, error_code=code)
+            return ModelCallFailed(f"model_error:{code}")
         metrics["model_calls"] += 1
         metrics["input_tokens"] += resp.input_tokens
         metrics["output_tokens"] += resp.output_tokens
@@ -111,7 +141,7 @@ def analyze_video(
         strategy=cfg.strategy, frame_interval_s=cfg.frame_interval_s if cfg.strategy == "frames" else None,
         segment_length_s=cfg.segment_length_s if cfg.strategy == "frames" else None,
         model_calls=0, retries=0, validation_failures=0, input_tokens=0, output_tokens=0,
-        model_latency_ms=0, images_sent=0, frames_sampled=0, rejected_events=0, segments=0,
+        model_latency_ms=0, images_sent=0, frames_sampled=0, rejected_events=0, segments=0, model_errors=0,
     )
     info: VideoInfo = probe(video)
     reqs: list[ModelRequest] = []
@@ -194,9 +224,32 @@ def analyze_video(
     log_event(
         "video_analyzed", video_id=meta.video_id, status=status, events=len(result["events"]),
         overall_risk_level=result["overall_risk_level"],
-        **{k: metrics[k] for k in ("strategy", "model_calls", "retries", "validation_failures", "input_tokens",
-                                   "output_tokens", "images_sent", "rejected_events", "total_ms")},
+        **{k: metrics[k] for k in ("strategy", "model_calls", "retries", "validation_failures", "model_errors",
+                                   "input_tokens", "output_tokens", "images_sent", "rejected_events", "total_ms")},
     )
+    return result
+
+
+def failure_result(meta: VideoMeta, cfg: PipelineConfig, model_name: str, reason: str) -> dict[str, Any]:
+    """Result document for a clip that could not be analysed at all (for example an undecodable file).
+
+    ``reason`` must be content-free (an exception type name or error code)."""
+    result: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "video": {
+            "video_id": meta.video_id, "camera_id": meta.camera_id,
+            "recorded_at": meta.recorded_at.isoformat().replace("+00:00", "Z"), "duration_s": 0.0,
+            "source_key": meta.source_key,
+        },
+        "model": model_name, "status": "fallback", "needs_review": True, "fallback_reason": reason[:200],
+        "scene": {"type": "unknown", "description": ""}, "events": [], "summary": "", "rejected": [],
+        "warnings": [],
+    }
+    postprocess(result, cfg)
+    result["metrics"] = {"strategy": cfg.strategy, "model_calls": 0, "retries": 0, "validation_failures": 0,
+                         "model_errors": 0, "input_tokens": 0, "output_tokens": 0, "images_sent": 0,
+                         "rejected_events": 0, "total_ms": 0}
+    log_event("video_analysis_failed", video_id=meta.video_id, reason=reason[:64])
     return result
 
 

@@ -14,8 +14,8 @@ import time
 log = logging.getLogger("video_events")
 
 _ALLOWED_TYPES = (int, float, bool, type(None))
-METRIC_KEYS = ("model_calls", "retries", "validation_failures", "input_tokens", "output_tokens", "images_sent",
-               "rejected_events", "total_ms")
+METRIC_KEYS = ("model_calls", "retries", "validation_failures", "model_errors", "input_tokens", "output_tokens",
+               "images_sent", "rejected_events", "total_ms")
 
 
 def log_event(name: str, **fields) -> None:

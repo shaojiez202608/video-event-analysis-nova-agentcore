@@ -105,3 +105,12 @@ def test_no_security_group_open_ingress(synth):
 def test_config_parameter(synth):
     _, t, _ = synth
     t.has_resource_properties("AWS::SSM::Parameter", {"Name": "/proto-video/pipeline-config", "Type": "String"})
+
+
+def test_dispatcher_failures_go_to_queue(synth):
+    _, t, _ = synth
+    t.has_resource_properties("AWS::SQS::Queue", {"QueueName": Match.string_like_regexp("-dispatch-failures$"),
+                                                  "SqsManagedSseEnabled": True})
+    t.has_resource_properties("AWS::Lambda::EventInvokeConfig", {
+        "MaximumRetryAttempts": 0,
+        "DestinationConfig": {"OnFailure": {"Destination": Match.any_value()}}})

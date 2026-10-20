@@ -25,7 +25,7 @@ from . import query
 from .config import PipelineConfig, load_config
 from .metrics import emf_line, log_event
 from .models import make_model
-from .pipeline import VideoMeta, analyze_video
+from .pipeline import VideoMeta, analyze_video, failure_result
 from .store import S3Store
 
 ALLOWED_OVERRIDES = {"strategy", "frame_interval_s", "segment_length_s"}
@@ -82,17 +82,23 @@ def analyze_s3_object(bucket: str, key: str, overrides: dict | None = None, s3=N
         # Large clip with the native video strategy: probe from a temp file, send by S3 URI.
         fd, path = tempfile.mkstemp(suffix=f".{meta.video_format}")
         os.close(fd)
-        s3.download_file(bucket, key, path)
         video = path
-    from .frames import probe
-
-    info = probe(video)
-    if info.duration_s > MAX_DURATION_S:
-        raise ValueError("clip too long for this prototype")
     try:
-        result = analyze_video(video, meta, cfg, make_model(cfg), s3_uri=s3_uri,
-                               bucket_owner=_account_id_for(bucket), video_size=size,
-                               frame_sink=_frame_sink(s3, bucket) if cfg.persist_frames else None)
+        if isinstance(video, str):
+            s3.download_file(bucket, key, video)
+        from .frames import probe
+
+        try:
+            info = probe(video)
+        except Exception as exc:  # undecodable upload: record it instead of dropping it silently
+            result = failure_result(meta, cfg, cfg.model_id if cfg.model_mode == "bedrock" else "mock-vision",
+                                    f"undecodable_video:{type(exc).__name__}")
+        else:
+            if info.duration_s > MAX_DURATION_S:
+                raise ValueError("clip too long for this prototype")
+            result = analyze_video(video, meta, cfg, make_model(cfg), s3_uri=s3_uri,
+                                   bucket_owner=_account_id_for(bucket), video_size=size,
+                                   frame_sink=_frame_sink(s3, bucket) if cfg.persist_frames else None)
     finally:
         if isinstance(video, str) and os.path.exists(video):
             os.remove(video)
@@ -146,12 +152,24 @@ def handle(payload: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"unknown action: {action}")
 
 
+REJECTIONS = (ValueError, PermissionError, KeyError, TypeError)
+
+
 def safe_handle(payload: dict[str, Any]) -> dict[str, Any]:
+    """Never let an exception escape to the runtime framework (it would echo str(exc) in an HTTP 500).
+
+    Request problems return the error type and a short message written by this code. Anything else
+    returns only the error type name, with ``internal: true`` so the dispatcher can route it to its
+    failure destination."""
+    action = str(payload.get("action", ""))[:20]
     try:
         return handle(payload)
-    except (ValueError, PermissionError, KeyError) as exc:
-        log_event("request_rejected", action=str(payload.get("action", ""))[:20], error=type(exc).__name__)
+    except REJECTIONS as exc:
+        log_event("request_rejected", action=action, error=type(exc).__name__)
         return {"error": type(exc).__name__, "message": str(exc)[:200]}
+    except Exception as exc:  # noqa: BLE001 - last-resort guard, details stay out of the response
+        log_event("request_failed", action=action, error=type(exc).__name__)
+        return {"error": type(exc).__name__, "internal": True}
 
 
 def dumps(obj: Any) -> str:

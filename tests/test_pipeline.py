@@ -143,3 +143,39 @@ def test_run_suite_mock(synthetic_set):
     assert summary["clips"] == 7
     assert summary["f1"] >= 0.8, per_clip
     assert summary["scene_accuracy"] == 1.0
+
+
+class _FlakyModel(MockVisionModel):
+    """Raises a botocore ClientError on selected calls (1-based), like a throttled Converse call."""
+
+    def __init__(self, fail_calls, code="ThrottlingException"):
+        super().__init__()
+        self.fail_calls, self.code = set(fail_calls), code
+
+    def analyze(self, req):
+        from botocore.exceptions import ClientError
+
+        if self.calls + 1 in self.fail_calls:
+            self.calls += 1
+            raise ClientError({"Error": {"Code": self.code, "Message": "secret detail"}}, "Converse")
+        return super().analyze(req)
+
+
+def test_model_error_in_one_segment_gives_partial(synthetic_set, caplog):
+    data, clip = clip_bytes(synthetic_set, "s05_fire_yard")
+    c = cfg(strategy="frames", frame_interval_s=2.0, segment_length_s=10.0, max_retries=1)
+    with caplog.at_level("INFO", logger="video_events"):
+        res = analyze_video(data, VideoMeta.from_key(clip["s3_key"]), c, _FlakyModel({2}))
+    assert res["status"] == "partial" and res["needs_review"] is True
+    assert res["fallback_reason"] == "model_error:ThrottlingException"
+    assert res["metrics"]["model_errors"] == 1 and res["metrics"]["segments"] == 3
+    assert "model_call_failed" in caplog.text and "secret detail" not in caplog.text
+
+
+def test_model_error_everywhere_gives_fallback(synthetic_set):
+    data, clip = clip_bytes(synthetic_set, "s05_fire_yard")
+    res = analyze_video(data, VideoMeta.from_key(clip["s3_key"]), cfg(strategy="video"),
+                        _FlakyModel({1, 2, 3}, code="AccessDeniedException"))
+    assert res["status"] == "fallback" and res["events"] == []
+    assert res["fallback_reason"] == "model_error:AccessDeniedException"
+    assert res["metrics"]["model_calls"] == 1  # no validation retry for a client error

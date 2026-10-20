@@ -17,10 +17,12 @@ from aws_cdk import (
 from aws_cdk import aws_bedrockagentcore as agentcore
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_lambda_destinations as lambda_dest
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_assets as s3_assets
 from aws_cdk import aws_s3_notifications as s3n
+from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 
@@ -191,6 +193,15 @@ class VideoEventStack(Stack):
                                                                          media.arn_for_objects("frames/*")]),
                 iam.PolicyStatement(actions=["ssm:GetParameter"], resources=[config_param.parameter_arn]),
             ]
+        # Failed asynchronous invocations (internal errors, not request rejections) land here.
+        failures = sqs.Queue(
+            self, "DispatchFailures",
+            queue_name=f"{prefix}-dispatch-failures",
+            encryption=sqs.QueueEncryption.SQS_MANAGED,
+            enforce_ssl=True,
+            retention_period=Duration.days(14),
+            removal_policy=RemovalPolicy.DESTROY,
+        )
         fn_policy = iam.Policy(self, "DispatcherPolicy", statements=fn_statements)
         fn_policy.attach_to_role(fn_role)
         dispatcher = lambda_.Function(
@@ -205,6 +216,7 @@ class VideoEventStack(Stack):
             role=fn_role,
             log_group=fn_logs,
             retry_attempts=0,
+            on_failure=lambda_dest.SqsDestination(failures),
             environment={
                 "ORCHESTRATOR": orchestrator,
                 "AGENT_RUNTIME_ARN": runtime.attr_agent_runtime_arn,
@@ -224,8 +236,13 @@ class VideoEventStack(Stack):
         CfnOutput(self, "AgentRuntimeId", value=runtime.attr_agent_runtime_id)
         CfnOutput(self, "DispatcherFunctionName", value=dispatcher.function_name)
         CfnOutput(self, "PipelineConfigParam", value=config_param.parameter_name)
+        CfnOutput(self, "DispatchFailureQueueUrl", value=failures.queue_url)
 
         self._suppress(access_logs)
+        Validations.of(failures).acknowledge(Acknowledgment(
+            id="AwsSolutions::AwsSolutions-SQS3",
+            reason="This queue is itself the on-failure destination of the dispatcher Lambda; a further "
+                   "dead-letter queue behind it would only move the same messages again."))
 
     def _suppress(self, access_logs: s3.Bucket) -> None:
         """cdk-nag v3 acknowledgements. Each is listed with its reason in SECURITY-NOTES.md."""
