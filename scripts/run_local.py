@@ -61,7 +61,10 @@ def main() -> None:
         print(out["answer"])
     elif args.cmd == "search":
         flt = query.parse_query_rules(args.text or "", now, cfg.utc_offset_minutes)
-        for h in query.search(store, args.cameras, flt):
+        hits = query.search(store, args.cameras, flt)
+        if not hits:
+            print("(no matching events)")
+        for h in hits:
             print(f"{h['local_time']} {h['camera_id']:<11} {h['type']:<22} {h['duration_s']:>5.0f}s  {h['source_key']}")
     else:
         print(query.dumps(query.daily_summary(store, args.cameras, args.date, cfg.utc_offset_minutes, cfg.locales)))
