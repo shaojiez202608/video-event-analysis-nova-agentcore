@@ -138,3 +138,25 @@ def test_repo_param_files_validate():
     root = Path(__file__).resolve().parents[1] / "config"
     for name in ("params.json", "params.customer.example.json"):
         PipelineConfig.from_dict(json.loads((root / name).read_text())["pipeline"])
+
+
+def test_high_risk_alert_survives_custom_rules():
+    # Only an "entrance people" rule is configured; a yard fire at emergency level must still notify.
+    rules = load_rules([{"name": "door", "locations": ["entrance"], "subjects": ["person"]}])
+    events = _with_ids([ev(t="fire_smoke", level="emergency", subj="fire_smoke"),
+                        ev(t="intrusion", level="high"), ev(t="intrusion", level="attention"),
+                        ev(t="pet_activity", cat="behavior", level="high", subj="pet")], ["10:00:00"] * 4)
+    out = evaluate(events, rules)
+    assert [(n["event_id"], n["rules"]) for n in out] == [("e0", ["always_high_risk"]), ("e1", ["always_high_risk"])]
+
+
+def test_night_window_matches_event_that_starts_before_it():
+    rules = load_rules([{"name": "night_yard", "locations": ["yard"], "subjects": ["person"],
+                         "local_time": {"start": "22:00", "end": "06:00"}}])
+    events = _with_ids([ev(start=0.0, end=50.0), ev(start=0.0, end=5.0), ev(start=0.0, end=600.0)],
+                       ["21:59:50", "21:59:50", "05:55:00"])
+    # 21:59:50-22:00:40 overlaps 22:00; 21:59:50-21:59:55 does not; 05:55-06:05 overlaps the end.
+    assert [n["event_id"] for n in evaluate(events, rules)] == ["e0", "e2"]
+    day = load_rules([{"name": "day", "local_time": {"start": "09:00", "end": "17:00"}}])
+    assert [n["event_id"] for n in evaluate(_with_ids([ev(start=0, end=120)], ["08:59:30"]), day)] == ["e0"]
+    assert evaluate(_with_ids([ev(start=0, end=20)], ["17:00:00"]), day) == []

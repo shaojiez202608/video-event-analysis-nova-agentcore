@@ -10,6 +10,17 @@ A rule is structured configuration, not free text, e.g.::
 All listed conditions must hold (AND); list values are alternatives (OR).
 An event that matches at least one rule produces a notification. With no rules
 configured, the default is: notify on risk events at level "attention" or above.
+
+Safety floor: risk events at level "high" or "emergency" always produce a
+notification (rule name ``always_high_risk``), even when the configured rules
+would not match them (for example a yard fire with only an "entrance people"
+rule). Custom rules can add notifications but cannot switch these off.
+
+A ``local_time`` window matches when any part of the event overlaps it
+(start and end local times, minute resolution), not only the start time.
+
+Rules are one global list in the pipeline configuration (not per user) and are
+structured data; natural-language rules are not supported.
 Turning natural-language requests ("only tell me about the door") into these
 rules is listed in the handover backlog.
 """
@@ -23,6 +34,7 @@ from typing import Any
 from .taxonomy import ALL_EVENT_TYPES, LOCATIONS, RISK_LEVELS, SUBJECTS, risk_rank
 
 DEFAULT_RULES = [{"name": "default_risk_alert", "categories": ["risk"], "min_risk_level": "attention"}]
+SAFETY_RULE = {"name": "always_high_risk", "categories": ["risk"], "min_risk_level": "high"}
 
 _ALLOWED_KEYS = {"name", "event_types", "categories", "locations", "subjects", "min_risk_level", "local_time"}
 
@@ -77,7 +89,7 @@ class WatchRule:
             window=window,
         )
 
-    def matches(self, ev: dict[str, Any], local_clock: time | None) -> bool:
+    def matches(self, ev: dict[str, Any], local_clock: time | None, duration_s: float = 0.0) -> bool:
         if self.event_types and ev["type"] not in self.event_types:
             return False
         if self.categories and ev["category"] not in self.categories:
@@ -91,24 +103,50 @@ class WatchRule:
         if self.window:
             if local_clock is None:
                 return False
-            start, end = self.window
-            inside = start <= local_clock < end if start <= end else (local_clock >= start or local_clock < end)
-            if not inside:
+            if not _overlaps(self.window, local_clock, duration_s):
                 return False
         return True
+
+
+def _sod(t: time) -> int:
+    return t.hour * 3600 + t.minute * 60 + t.second
+
+
+def _inside(window: tuple[time, time], sec: int) -> bool:
+    start, end = _sod(window[0]), _sod(window[1])
+    sec %= 86400
+    return start <= sec < end if start <= end else (sec >= start or sec < end)
+
+
+def _overlaps(window: tuple[time, time], clock: time, duration_s: float) -> bool:
+    """True if [clock, clock + duration] touches the window. Window edges are whole minutes, so
+    checking the start, every minute boundary inside the event and the end is exact."""
+    start = _sod(clock)
+    end = start + max(0, int(duration_s))
+    points = [start, end] + list(range((start // 60 + 1) * 60, end, 60))
+    return any(_inside(window, p) for p in points)
 
 
 def load_rules(raw: list[dict[str, Any]] | None) -> list[WatchRule]:
     return [WatchRule.from_dict(r) for r in (raw or DEFAULT_RULES)]
 
 
+_SAFETY = WatchRule.from_dict(SAFETY_RULE)
+
+
+def _clock(value: str) -> time:
+    parts = [int(p) for p in value.split(":")]
+    return time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
+
+
 def evaluate(events: list[dict[str, Any]], rules: list[WatchRule]) -> list[dict[str, Any]]:
     out = []
     for ev in events:
-        clock = None
-        if ev.get("local_time"):
-            clock = _parse_hhmm(ev["local_time"][:5])
-        matched = [r.name for r in rules if r.matches(ev, clock)]
+        clock = _clock(ev["local_time"]) if ev.get("local_time") else None
+        duration = max(0.0, float(ev.get("end_s", 0.0)) - float(ev.get("start_s", 0.0)))
+        matched = [r.name for r in rules if r.matches(ev, clock, duration)]
+        if not matched and _SAFETY.matches(ev, clock, duration):
+            matched = [_SAFETY.name]
         if matched:
             out.append({"event_id": ev["event_id"], "type": ev["type"], "risk_level": ev["risk_level"],
                         "rules": matched})
