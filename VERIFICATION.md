@@ -178,3 +178,15 @@ mock 模型是颜色规则检测器，只看传给它的帧，只对合成集有
 
 ### 7.3 ASH
 
+ASH v3.7.1，`--mode local`，对干净克隆运行（克隆中没有 .venv、build、cdk.out 或生成的视频），输出在项目外 `_scan_out/video_analysis/ash-v4/`。第一次运行（提交 `02dbc62`）semgrep 报 1 条：`uv-missing-dependency-cooldown`。修复：`[tool.uv]` 加 `exclude-newer = "7 days"`（`0840f2a`），并放在表的第一行，因为规则只读到第一个 `[` 为止（`efa0c5b`）。在 `efa0c5b` 上重跑：
+
+| 扫描器 | 结果 | 说明 |
+|---|---|---|
+| bandit | PASSED（0 Medium/High，231 Low） | Low：226 条 B101（测试中的 assert）；B404/B603/B607 共 5 条（`gen_synthetic.py` 与测试用固定参数调用本机 ffmpeg，属开发工具，接受） |
+| checkov | PASSED | 0 |
+| detect-secrets | PASSED | 0 |
+| npm-audit | PASSED | 无 npm 依赖 |
+| semgrep | PASSED | 0（修复后） |
+| cdk-nag、cfn-nag、grype、opengrep、syft | **MISSING（未运行）** | 本机无 Docker / 未安装，按维护者约定不在本机补装，交给 CI 补跑。按规范，扫描器没跑完视为**未通过**。cdk-nag 已由项目自身的 `make synth` 运行（第 7.1 节） |
+
+结论：ASH 在本机**未完整通过**（5 个扫描器未运行）；已运行的 5 个扫描器全部通过。
