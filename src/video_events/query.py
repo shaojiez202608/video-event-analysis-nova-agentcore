@@ -218,7 +218,8 @@ MAX_WINDOW = timedelta(days=31)
 def filter_from_tool_input(args: dict) -> EventFilter:
     errs = list(_TOOL_VALIDATOR.iter_errors(args))
     if errs:
-        raise ValueError(f"invalid tool input: {errs[0].message[:120]}")
+        path = "/".join(str(p) for p in errs[0].absolute_path) or "<root>"
+        raise ValueError(f"invalid tool input: {path}: {errs[0].validator}")
     start, end = _ts(args["start"]), _ts(args["end"])
     if start.tzinfo is None or end.tzinfo is None:
         start, end = start.replace(tzinfo=UTC), end.replace(tzinfo=UTC)

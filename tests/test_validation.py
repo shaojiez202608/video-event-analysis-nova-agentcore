@@ -122,3 +122,13 @@ def test_merge_same_type_across_segments():
 def test_merge_keeps_separate_when_gap_large():
     merged = merge_events([ev(start_s=0, end_s=2), ev(start_s=10, end_s=12)], gap_s=2.0)
     assert len(merged) == 2
+
+
+@pytest.mark.parametrize("bad", [doc(scene_description="SECRET-TEXT " * 40), doc(scene_type="SECRET-TEXT"),
+                                 doc(extra_SECRET_TEXT=1), doc(summary="SECRET-TEXT " * 80)])
+def test_schema_error_message_has_no_instance_values(bad):
+    with pytest.raises(ResponseInvalid) as info:
+        validate_model_output(bad, 30)
+    msg = str(info.value)
+    assert "SECRET" not in msg
+    assert msg.startswith("schema: ")

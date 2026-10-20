@@ -76,8 +76,13 @@ def clean_text(value: str, limit: int) -> tuple[str, bool]:
 
 
 def _short(err) -> str:
+    """Field path + JSON-schema keyword only.
+
+    ``err.message`` is not used: jsonschema embeds the offending instance in it (for example the
+    whole over-long scene description), and this string ends up in logs, in ``fallback_reason``
+    and in the retry hint. Logs must not carry picture descriptions (FR-7)."""
     path = "/".join(str(p) for p in err.absolute_path) or "<root>"
-    return f"{path}: {err.message[:120]}"
+    return f"{path}: {err.validator}"
 
 
 def validate_model_output(

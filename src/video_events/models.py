@@ -47,7 +47,11 @@ class VisionModel(Protocol):
 
 class MockVisionModel:
     """Colour-rule model for synthetic clips. ``faults`` lets tests inject bad output:
-    each call pops the next fault ("not_json", "bad_schema", "bad_event", None)."""
+    each call pops the next fault ("not_json", "bad_schema", "bad_event", "fenced",
+    "long_scene", "bad_scene_type", None). The last two put ``LEAK_MARKER`` text in
+    fields that fail schema validation, to prove the text never reaches the logs."""
+
+    LEAK_MARKER = "ZEBRA-MARKER red car parked by the gate"
 
     name = "mock-vision"
 
@@ -89,6 +93,10 @@ class MockVisionModel:
                 {**_template_event(), "start_s": 50.0, "end_s": 10.0},
                 {**_template_event(), "start_s": -30.0, "end_s": 9999.0},
             ]
+        if fault == "long_scene":
+            doc = dict(doc, scene_description=(MockVisionModel.LEAK_MARKER + " ") * 20)
+        if fault == "bad_scene_type":
+            doc = dict(doc, scene_type=MockVisionModel.LEAK_MARKER)
         if fault == "fenced":
             return "```json\n" + json.dumps(doc) + "\n```"
         return json.dumps(doc, ensure_ascii=False)

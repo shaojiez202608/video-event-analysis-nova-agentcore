@@ -122,6 +122,7 @@ def _call_with_validation(model: VisionModel, req: ModelRequest, cfg: PipelineCo
         except ResponseInvalid as exc:
             metrics["validation_failures"] += 1
             last_err = exc
+            # The message holds field paths and JSON-schema keywords only (see validation._short).
             log_event("model_output_invalid", attempt=attempt, reason=str(exc)[:200])
     return last_err
 

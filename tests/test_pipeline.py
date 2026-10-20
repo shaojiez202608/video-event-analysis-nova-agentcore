@@ -179,3 +179,16 @@ def test_model_error_everywhere_gives_fallback(synthetic_set):
     assert res["status"] == "fallback" and res["events"] == []
     assert res["fallback_reason"] == "model_error:AccessDeniedException"
     assert res["metrics"]["model_calls"] == 1  # no validation retry for a client error
+
+
+@pytest.mark.parametrize("fault", ["long_scene", "bad_scene_type"])
+def test_invalid_output_text_not_logged(synthetic_set, caplog, fault):
+    data, clip = clip_bytes(synthetic_set, "s05_fire_yard")
+    model = MockVisionModel(faults=[fault, fault])
+    with caplog.at_level("INFO", logger="video_events"):
+        res = analyze_video(data, VideoMeta.from_key(clip["s3_key"]), cfg(strategy="video", max_retries=1), model)
+    assert res["status"] == "fallback" and res["needs_review"] is True
+    assert caplog.text.count("model_output_invalid") == 2
+    assert "ZEBRA" not in caplog.text
+    assert "ZEBRA" not in res["fallback_reason"]
+    assert res["fallback_reason"] in ("schema: scene_description: maxLength", "schema: scene_type: enum")
