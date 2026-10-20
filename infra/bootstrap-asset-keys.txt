@@ -17,3 +17,9 @@ a2fab645bb0362cff3f1eedca1a8ce48f53e3f9906bad66fbf3a529a98a3a1de.json
 # Template of the first deployment of the earlier version, identified by content (stack template with
 # this project's runtime name and metrics namespace; same size as the second deployment's template):
 e6acaf0865baf9d99f41d75b6114d1d2227cb044bb949d1fc06feb664bfc0662.json
+# Standards-pass deployment check (2026-10-20): agent zip, Lambda code, template, and the template that
+# `cdk diff` uploaded for the destructive-change guard demonstration (identified by content):
+e091fea1f8ca206a56e79ebd1f8e60c84f4eb873229fd7d33ca0b96eed7e03fd.zip
+be2fab1f647f9c6b45f4044d811c4182df48c79981c5ca4e63427876c663e5b8.zip
+3cdf4bee03bd31b39c71dc20ce22863958e4b3948b9be6ab88da75aafb51c454.json
+9f83c95ad53b17fdd146bb06c99e84ec20276dc835e64e74510407ffcf7d5132.json

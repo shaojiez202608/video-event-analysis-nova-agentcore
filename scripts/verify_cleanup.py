@@ -28,11 +28,12 @@ GENERIC_ASSET_MARKERS = ("Custom::", "AWS679f53fac002430cb0da5b7982bd2287", "Buc
 
 
 def project_asset_keys(stack: str, extra_file: str | None) -> list[str]:
-    """Object keys of this project's own assets (code packages, templates). CDK's generic provider
-    packages are shared with other stacks and are excluded."""
+    """Object keys of this project's own assets (code packages, templates): the current cdk.out
+    manifest, the manifests saved by scripts/deploy.sh in .deploy/, and an optional file of older
+    keys. CDK's generic provider packages are shared with other stacks and are excluded."""
     keys: list[str] = []
-    manifest = Path("cdk.out") / f"{stack}.assets.json"
-    if manifest.is_file():
+    manifests = [Path("cdk.out") / f"{stack}.assets.json", *sorted(Path(".deploy").glob(f"{stack}.*.assets.json"))]
+    for manifest in (m for m in manifests if m.is_file()):
         for asset in json.loads(manifest.read_text())["files"].values():
             if any(m in asset.get("displayName", "") for m in GENERIC_ASSET_MARKERS):
                 continue

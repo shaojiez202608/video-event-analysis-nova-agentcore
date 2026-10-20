@@ -20,3 +20,5 @@ cdk.context.json
 .env*
 !.env.example
 *.local.json
+# Asset manifests of past deployments (scripts/deploy.sh), used by cleanup
+.deploy/

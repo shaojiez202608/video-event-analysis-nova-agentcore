@@ -29,3 +29,7 @@ fi
 
 echo "== cdk deploy"
 "${CDK[@]}" deploy "${CTX[@]}" --require-approval never 2>&1 | mask
+# Keep the asset manifest of what was actually uploaded: later synths (diff, destroy) overwrite
+# cdk.out, and cleanup must delete exactly the uploaded bootstrap objects.
+STACK=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deploy"]["stack_name"])' "$PARAMS")
+mkdir -p .deploy && cp "cdk.out/${STACK}.assets.json" ".deploy/${STACK}.$(date -u +%Y%m%dT%H%M%SZ).assets.json"
