@@ -166,13 +166,14 @@ def test_on_demand_model_is_region_scoped(tmp_path):
     assert "arn:aws:bedrock:*::" not in text and "inference-profile" not in text
 
 
-def test_runtime_log_group_has_retention(synth):
+def test_runtime_log_group_gets_retention_and_is_deleted(synth):
+    # The service creates the runtime log group itself (a LogGroup resource fails with AlreadyExists),
+    # so a custom resource sets the retention and deletes the group on destroy.
     _, t, _ = synth
-    groups = t.find_resources("AWS::Logs::LogGroup")
-    runtime = [g for g in groups.values() if "bedrock-agentcore/runtimes" in json.dumps(g["Properties"]["LogGroupName"])]
-    assert len(runtime) == 1
-    g = runtime[0]
-    assert g["Properties"]["RetentionInDays"] == 7
-    assert g["DeletionPolicy"] == "Delete"
-    name = json.dumps(g["Properties"]["LogGroupName"])
-    assert "AgentRuntimeId" in name and "-DEFAULT" in name
+    crs = t.find_resources("Custom::AWS")
+    assert len(crs) == 1
+    props = json.dumps(next(iter(crs.values()))["Properties"])
+    assert "putRetentionPolicy" in props and '\\"retentionInDays\\":7' in props
+    assert "deleteLogGroup" in props and "AgentRuntimeId" in props and "-DEFAULT" in props
+    policy = json.dumps(t.find_resources("AWS::IAM::Policy"))
+    assert "logs:PutRetentionPolicy" in policy and "logs:DeleteLogGroup" in policy

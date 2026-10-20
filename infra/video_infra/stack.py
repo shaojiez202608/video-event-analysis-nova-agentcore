@@ -24,6 +24,7 @@ from aws_cdk import aws_s3_assets as s3_assets
 from aws_cdk import aws_s3_notifications as s3n
 from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_ssm as ssm
+from aws_cdk import custom_resources as cr
 from constructs import Construct
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,7 +43,7 @@ class VideoEventStack(Stack):
         prefix = deploy["resource_prefix"]
         destroy = deploy.get("removal_policy", "retain") == "destroy"
         removal = RemovalPolicy.DESTROY if destroy else RemovalPolicy.RETAIN
-        log_days = _retention_enum(deploy.get("log_retention_days", 7))
+        log_days, log_days_n = _retention(deploy.get("log_retention_days", 7))
 
         bundle_dir = Path(deploy.get("bundle_dir") or ROOT / "build" / "bundle")
         agent_zip = Path(deploy.get("agent_zip") or ROOT / "build" / "agent.zip")
@@ -174,14 +175,31 @@ class VideoEventStack(Stack):
             tags=dict(deploy.get("tags", {})),
         )
         runtime.node.add_dependency(agent_policy)
-        # The runtime writes to /aws/bedrock-agentcore/runtimes/<runtime id>-<endpoint>. Created here (before the
-        # first invocation) so it has a retention period and is deleted with the stack, instead of the
-        # service creating it with "never expire".
-        runtime_log_group = logs.LogGroup(
-            self, "RuntimeLogs",
-            log_group_name=f"/aws/bedrock-agentcore/runtimes/{runtime.attr_agent_runtime_id}-DEFAULT",
-            retention=log_days, removal_policy=RemovalPolicy.DESTROY,
+        # The service creates /aws/bedrock-agentcore/runtimes/<runtime id>-DEFAULT itself while the runtime is
+        # created (an AWS::Logs::LogGroup with that name fails with AlreadyExists), with "never expire".
+        # A custom resource sets the retention right after the runtime exists and deletes the group on destroy.
+        runtime_log_group_name = f"/aws/bedrock-agentcore/runtimes/{runtime.attr_agent_runtime_id}-DEFAULT"
+        runtime_log_group_arn = f"arn:aws:logs:{Aws.REGION}:{Aws.ACCOUNT_ID}:log-group:{runtime_log_group_name}"
+        retention_call = cr.AwsSdkCall(
+            service="CloudWatchLogs", action="putRetentionPolicy",
+            parameters={"logGroupName": runtime_log_group_name, "retentionInDays": log_days_n},
+            physical_resource_id=cr.PhysicalResourceId.of(runtime_log_group_name),
         )
+        runtime_log_retention = cr.AwsCustomResource(
+            self, "RuntimeLogRetention",
+            on_create=retention_call,
+            on_update=retention_call,
+            on_delete=cr.AwsSdkCall(
+                service="CloudWatchLogs", action="deleteLogGroup",
+                parameters={"logGroupName": runtime_log_group_name},
+                ignore_error_codes_matching="ResourceNotFoundException",
+            ),
+            policy=cr.AwsCustomResourcePolicy.from_statements([iam.PolicyStatement(
+                actions=["logs:PutRetentionPolicy", "logs:DeleteLogGroup"],
+                resources=[runtime_log_group_arn, f"{runtime_log_group_arn}:*"])]),
+            install_latest_aws_sdk=False,
+        )
+        runtime_log_retention.node.add_dependency(runtime)
 
         # ------------------------------------------------------------------ dispatcher Lambda
         orchestrator = deploy.get("orchestrator", "agentcore")
@@ -245,18 +263,19 @@ class VideoEventStack(Stack):
         CfnOutput(self, "MediaBucketName", value=media.bucket_name)
         CfnOutput(self, "AgentRuntimeArn", value=runtime.attr_agent_runtime_arn)
         CfnOutput(self, "AgentRuntimeId", value=runtime.attr_agent_runtime_id)
-        CfnOutput(self, "RuntimeLogGroupName", value=runtime_log_group.log_group_name)
+        CfnOutput(self, "RuntimeLogGroupName", value=runtime_log_group_name)
         CfnOutput(self, "DispatcherFunctionName", value=dispatcher.function_name)
         CfnOutput(self, "PipelineConfigParam", value=config_param.parameter_name)
         CfnOutput(self, "DispatchFailureQueueUrl", value=failures.queue_url)
 
         self._acknowledge(access_logs=access_logs, failures=failures, agent_policy=agent_policy,
                           fn_policy=fn_policy, dispatcher=dispatcher, agent_name=agent_name, model_id=model_id,
-                          fm_id=fm_id, media=media, lambda_mode=orchestrator == "lambda")
+                          fm_id=fm_id, media=media, lambda_mode=orchestrator == "lambda",
+                          log_retention=runtime_log_retention)
 
     def _acknowledge(self, *, access_logs: s3.Bucket, failures: sqs.Queue, agent_policy: iam.Policy,
                      fn_policy: iam.Policy, dispatcher: lambda_.Function, agent_name: str, model_id: str,
-                     fm_id: str, media: s3.Bucket, lambda_mode: bool) -> None:
+                     fm_id: str, media: s3.Bucket, lambda_mode: bool, log_retention: cr.AwsCustomResource) -> None:
         """cdk-nag v3 acknowledgements, each attached to the construct that triggers it.
 
         Finding ids are built from the same values as the policies (runtime name, model id), so a
@@ -313,16 +332,28 @@ class VideoEventStack(Stack):
             "The project's own dispatcher uses Python 3.13 on purpose: it shares one arm64 wheel bundle with the "
             "AgentCore Runtime, whose newest direct-code runtime is PYTHON_3_13. Move both together (handover).")
 
-        handler = next((c for c in self.node.children if c.node.id.startswith("BucketNotificationsHandler")), None)
-        if handler is not None:
-            ack(handler, "IAM4",
-                "CDK-managed bucket-notifications handler (deploy time only) uses AWSLambdaBasicExecutionRole; the "
-                "project's own roles use inline least-privilege policies.",
-                "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
+        ack(log_retention, "IAM5",
+            "logs:PutRetentionPolicy / logs:DeleteLogGroup on this runtime's own log group; the ':*' form of the "
+            "log-group ARN is the one CloudWatch Logs evaluates for log-group actions.",
+            "Resource::arn:aws:logs:<AWS::Region>:<AWS::AccountId>:log-group:/aws/bedrock-agentcore/runtimes/"
+            "<AgentRuntime.AgentRuntimeId>-DEFAULT:*")
+
+        basic = "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        singletons = {
+            "BucketNotificationsHandler": "CDK-managed bucket-notifications handler",
+            "AWS679f53fac002430cb0da5b7982bd2287": "CDK-managed AwsCustomResource handler (runtime log retention)",
+        }
+        for child in self.node.children:
+            for id_prefix, what in singletons.items():
+                if child.node.id.startswith(id_prefix):
+                    ack(child, "IAM4", f"{what} runs at deploy/destroy time only and uses AWSLambdaBasicExecutionRole; "
+                                       "the project's own roles use inline least-privilege policies.", basic)
 
 
-def _retention_enum(days: int) -> logs.RetentionDays:
+def _retention(days: int) -> tuple[logs.RetentionDays, int]:
+    """Nearest supported retention period, as the CDK enum and as a number of days."""
     table = {1: logs.RetentionDays.ONE_DAY, 3: logs.RetentionDays.THREE_DAYS, 5: logs.RetentionDays.FIVE_DAYS,
              7: logs.RetentionDays.ONE_WEEK, 14: logs.RetentionDays.TWO_WEEKS, 30: logs.RetentionDays.ONE_MONTH,
              90: logs.RetentionDays.THREE_MONTHS}
-    return table[min(table, key=lambda d: abs(d - days))]
+    n = min(table, key=lambda d: abs(d - days))
+    return table[n], n
