@@ -289,8 +289,10 @@ def postprocess(result: dict[str, Any], cfg: PipelineConfig) -> dict[str, Any]:
         ev["abs_start"] = start.isoformat().replace("+00:00", "Z")
         ev["abs_end"] = end.isoformat().replace("+00:00", "Z")
         ev["local_time"] = (start + local_tz).strftime("%H:%M:%S")
-    levels = [e["risk_level"] for e in result["events"] if e["category"] == "risk"]
-    result["overall_risk_level"] = max_level(*levels) if levels else ("low" if result["events"] else "none")
+    # Highest final level over all events: a behaviour event raised by a risk floor (or reported above
+    # "low" by the model) counts too. No events -> "none".
+    levels = [e["risk_level"] for e in result["events"]]
+    result["overall_risk_level"] = max_level(*levels) if levels else "none"
     result["localized"] = i18n.localize(result, cfg.locales)
     result["notifications"] = rules.evaluate(result["events"], rules.load_rules(cfg.watch_rules))
     return result

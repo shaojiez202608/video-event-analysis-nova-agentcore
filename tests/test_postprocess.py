@@ -160,3 +160,11 @@ def test_night_window_matches_event_that_starts_before_it():
     day = load_rules([{"name": "day", "local_time": {"start": "09:00", "end": "17:00"}}])
     assert [n["event_id"] for n in evaluate(_with_ids([ev(start=0, end=120)], ["08:59:30"]), day)] == ["e0"]
     assert evaluate(_with_ids([ev(start=0, end=20)], ["17:00:00"]), day) == []
+
+
+def test_overall_level_counts_behaviour_events():
+    cfg = PipelineConfig.from_dict({"risk_floors": {"person_lingering": "attention"}})
+    r = postprocess(result_with([ev(t="person_lingering", cat="behavior", level="low")]), cfg)
+    assert r["overall_risk_level"] == "attention"
+    r = postprocess(result_with([ev(t="pet_activity", cat="behavior", level="low", subj="pet")]), PipelineConfig())
+    assert r["overall_risk_level"] == "low"
