@@ -1,0 +1,83 @@
+{
+  "deploy": {
+    "stack_name": "proto-video-event-analysis",
+    "resource_prefix": "proto-video",
+    "region": "us-east-1",
+    "removal_policy": "retain",
+    "orchestrator": "agentcore",
+    "video_retention_days": 3,
+    "frame_retention_days": 1,
+    "result_retention_days": 30,
+    "log_retention_days": 7,
+    "lambda_timeout_s": 900,
+    "lambda_memory_mb": 2048,
+    "agent_idle_timeout_s": 300,
+    "agent_max_lifetime_s": 1800,
+    "tags": {
+      "Project": "video-event-analysis",
+      "Purpose": "prototype",
+      "Teardown": "after-test"
+    }
+  },
+  "pipeline": {
+    "strategy": "frames",
+    "frame_interval_s": 2.0,
+    "segment_length_s": 10.0,
+    "max_images_per_call": 5,
+    "frame_width": 640,
+    "inline_video_max_bytes": 20000000,
+    "model_mode": "bedrock",
+    "model_id": "us.amazon.nova-2-lite-v1:0",
+    "max_tokens": 2048,
+    "temperature": 0.0,
+    "max_retries": 1,
+    "output_mode": "tool",
+    "prompt_hint": "",
+    "time_tolerance_s": 1.0,
+    "merge_gap_s": 2.0,
+    "risk_floors": {},
+    "locales": [
+      "zh-CN",
+      "en-US",
+      "ru-RU"
+    ],
+    "utc_offset_minutes": 0,
+    "persist_frames": false,
+    "watch_rules": [
+      {
+        "name": "risk_alert",
+        "categories": [
+          "risk"
+        ],
+        "min_risk_level": "attention"
+      },
+      {
+        "name": "entrance_people",
+        "locations": [
+          "entrance"
+        ],
+        "subjects": [
+          "person",
+          "courier_like_person",
+          "multiple_people"
+        ]
+      },
+      {
+        "name": "night_yard_person",
+        "locations": [
+          "yard",
+          "driveway"
+        ],
+        "subjects": [
+          "person",
+          "multiple_people"
+        ],
+        "local_time": {
+          "start": "22:00",
+          "end": "06:00"
+        }
+      }
+    ]
+  },
+  "_comment": "Handover default: data buckets are retained on stack deletion. Review retention days with the data owner."
+}
