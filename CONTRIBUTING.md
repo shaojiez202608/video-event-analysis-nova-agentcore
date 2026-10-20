@@ -1,32 +1,46 @@
 # Contributing
 
-Thanks for your interest in improving this prototype.
+Thank you for your interest in improving this prototype. Bug reports, fixes and documentation
+changes are welcome.
 
 ## Reporting bugs and requesting features
 
-Open an issue in the repository where you found this project. Describe what you
-did, what you expected, and what happened. Do not attach real camera footage or
-any personal data; reproduce problems with the synthetic generator
-(`scripts/gen_synthetic.py`) instead.
+Use the issue forms. Describe what you did, what you expected and what happened. Do not attach real
+camera footage, personal data, account ids or credentials; reproduce problems with the synthetic
+generator (`scripts/gen_synthetic.py`). Security issues go to [SECURITY.md](SECURITY.md), not to
+public issues.
 
 ## Pull requests
 
-1. Fork the repository and create a branch from `main`.
-2. Set up the environment: `uv sync`.
-3. Make your change and add or update tests under `tests/`.
-4. Run `uv run ruff check .` and `uv run pytest`.
-5. Run a secret scan before committing (for example `uvx detect-secrets scan`).
-6. Open a pull request with a clear description of the change.
+1. Create a branch from `main`. One change per pull request; it is squash-merged.
+2. `make init`, then make your change.
+3. **Every change needs a test** (unit tests under `tests/`; infrastructure changes also need an
+   assertion in `tests/test_infra.py` and a clean `make synth`).
+4. Run `make lint test synth scan-ci eval-mock`. Fill in the pull request template, including what
+   you did not test.
+5. Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+   (`feat(scope): ...`, `fix`, `docs`, `test`, `chore`, `ci`, `refactor`). The body says what changed,
+   why, and how it was verified.
 
-## Data rules
+## Rules for content
 
-- Only synthetic data or public datasets with a compatible license may be added.
-- No real video, no images of real people, no account identifiers or credentials.
+- No account ids (use `111122223333`), customer, company or personal names, internal host names
+  (use `example.com`), credentials, or values that look like real keys.
+- Placeholders are `<UPPER_SNAKE>`.
+- Only synthetic data, or public data with a compatible licence, may be added. No real video and no
+  images of real people.
+- New cdk-nag acknowledgements are attached to the construct that triggers them and have a written
+  reason in SECURITY-NOTES.md.
 
-## Security issues
+## AI-assisted contributions
 
-See [SECURITY.md](SECURITY.md). Do not open public issues for security problems.
+You may use AI coding assistants. You are responsible for every line you submit: you must be able
+to explain what each line does and why it is there, and you must have run the checks above
+yourself. Assistant instructions for this repository are in [AGENTS.md](AGENTS.md).
 
-## License
+## Licensing
 
-By contributing, you agree that your contributions are licensed under the MIT-0 license in [LICENSE](LICENSE).
+See the [LICENSE](LICENSE) file for this project's licensing. We will ask you to confirm the
+licensing of your contribution. By submitting a pull request you confirm that you have the right to
+submit it and that it is licensed under the MIT-0 license of this repository. Third-party code or
+assets need an entry in [THIRD-PARTY-LICENSES](THIRD-PARTY-LICENSES) and a compatible licence.
