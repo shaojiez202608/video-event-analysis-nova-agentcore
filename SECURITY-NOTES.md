@@ -7,16 +7,18 @@
 | AgentCore runtime execution role | `s3:GetObject` | media bucket `uploads/*`, `results/*` |
 | | `s3:PutObject` | media bucket `results/*`, `frames/*` |
 | | `s3:ListBucket` | media bucket, condition `s3:prefix` = `results/*` |
-| | `bedrock:InvokeModel` | `foundation-model/amazon.nova-2-lite-v1:0` (any region, required by the cross-region profile) and the `us.amazon.nova-2-lite-v1:0` inference profile in this account and region |
+| | `bedrock:InvokeModel` | only the configured `pipeline.model_id`: for a cross-region profile (default `us.amazon.nova-2-lite-v1:0`) the profile ARN in this account and region plus `foundation-model/<id without prefix>` in any region; for an on-demand model id, the foundation model in the stack region only |
 | | `ssm:GetParameter` | `/proto-video/pipeline-config` only |
 | | CloudWatch Logs | `/aws/bedrock-agentcore/runtimes/*` log groups and streams (as in the AgentCore permissions guide) |
 | | X-Ray put/sampling, `cloudwatch:PutMetricData` | `*`, metrics restricted by the `cloudwatch:namespace = bedrock-agentcore` condition |
-| | workload access token | default workload identity directory, `proto_video_event_agent-*` identities |
+| | workload access token | default workload identity directory, `<runtime name>-*` identities (the runtime name comes from `resource_prefix`) |
 | | read of the code package | the CDK asset object only |
 | Trust policy | `bedrock-agentcore.amazonaws.com` | conditions `aws:SourceAccount` and `aws:SourceArn` (this account and region) |
 | Dispatcher Lambda role | `bedrock-agentcore:InvokeAgentRuntime` | this runtime ARN and its endpoints |
 | | logs | its own log group |
-| | (only when `orchestrator=lambda`) Bedrock, S3 and SSM | same scopes as the runtime role |
+| | `sqs:SendMessage` (+ `GetQueueAttributes`, `GetQueueUrl`, added by CDK for the destination) | the stack's `*-dispatch-failures` queue only |
+| | (only when `orchestrator=lambda`) `bedrock:InvokeModel`, `s3:GetObject` `uploads/*`, `s3:PutObject` `results/*` `frames/*`, `ssm:GetParameter` | same scopes as the runtime role. This widens what the Lambda can reach (THREAT_MODEL section 3). |
+| `RuntimeLogRetention` custom resource | `logs:PutRetentionPolicy`, `logs:DeleteLogGroup` | the runtime's own log group only |
 
 No IAM users, no access keys, no `*:*` actions, no security groups (no VPC resources), no public endpoints.
 
@@ -26,8 +28,12 @@ No IAM users, no access keys, no `*:*` actions, no security groups (no VPC resou
   encryption, TLS 1.2 minimum, server access logs to a separate private bucket, lifecycle expiry for
   `uploads/`, `frames/` and `results/`.
 - Frames are not persisted by default (`persist_frames=false`).
-- Logs: content-free (ids, counts, enum values, timings). Lambda log group retention comes from config
-  (sandbox: 7 days). The AgentCore runtime log group is created by the service (see cleanup.md).
+- Logs: content-free (ids, counts, enum values, error codes, timings); validation errors carry the field
+  path and schema keyword only. Lambda log group retention comes from config (sandbox: 7 days). The
+  AgentCore runtime log group is created by the service; the `RuntimeLogRetention` custom resource
+  sets the same retention and deletes it on destroy (cleanup.md).
+- The dispatcher's failure queue uses SQS-managed encryption (SSE-SQS), TLS-only access and 14-day
+  message retention.
 - Configuration is in SSM Parameter Store. There are no secrets in this project.
 
 ## cdk-nag (AwsSolutions) acknowledgements

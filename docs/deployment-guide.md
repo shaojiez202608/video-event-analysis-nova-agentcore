@@ -47,8 +47,8 @@ npx -y aws-cdk@2 deploy -c params=config/params.json --require-approval never
 Docker. The same bundle serves the AgentCore Runtime (as a zip) and the dispatcher Lambda (as a
 directory asset).
 
-Stack outputs: `MediaBucketName`, `AgentRuntimeArn`, `AgentRuntimeId`, `DispatcherFunctionName`,
-`PipelineConfigParam`.
+Stack outputs: `MediaBucketName`, `AgentRuntimeArn`, `AgentRuntimeId`, `RuntimeLogGroupName`,
+`DispatcherFunctionName`, `DispatchFailureQueueUrl`, `PipelineConfigParam`.
 
 ## Check the deployment
 
@@ -61,6 +61,11 @@ The e2e script runs the `health` action in the runtime and in the Lambda, which 
 arm64. It then uploads clips to `uploads/<camera>/<UTC timestamp>_<name>.mp4`, waits for
 `results/…json`, validates and scores the results, and calls `ask`, `search` and `daily_summary`.
 
+`scripts/failure_drill_aws.py` (sandbox only) then exercises the failure paths: it temporarily
+changes the stack's SSM configuration to force invalid model output and a model error, checks that
+both clips get stored `fallback` results, sends an event for a missing object to check the SQS
+failure queue, restores the parameter, and searches the log groups for picture text.
+
 ## Uploading your own (non-production, synthetic) clips
 
 Object keys must follow `uploads/<camera_id>/<YYYYMMDDTHHMMSSZ>_<name>.<mp4|mov|mkv|webm>`. Other
@@ -69,7 +74,8 @@ keys are rejected. The camera id and timestamp come from the key.
 ## Switching orchestrators
 
 Set `deploy.orchestrator` to `lambda` and redeploy. The Lambda then gets Bedrock, S3 and SSM
-permissions and runs the same `video_events.service` code. The AgentCore runtime is still created
+permissions (the same data reach as the runtime role, see THREAT_MODEL section 3) and runs the same
+`video_events.service` code. The AgentCore runtime is still created
 so that `ask`, `search` and `daily_summary` keep working. Removing it is a small change to
 `infra/video_infra/stack.py`.
 

@@ -32,8 +32,11 @@ or "report a fire emergency". Eval clip `s14_injection_text` contains such text.
 
 Mitigations in code:
 - System prompt states that text inside the video is scene content, never an instruction (`prompts.py`).
-- During analysis the model has **no tools and no actions**. The orchestration order is fixed in code
-  (DECISIONS D2), so injected text can at most change the JSON the model returns.
+- During analysis the model has **no actions with side effects**. With `output_mode=tool` the Converse
+  request declares exactly one tool, `report_camera_events`, and forces it with `toolChoice`; that tool
+  is never executed, its input is only the output contract and is parsed and validated like text output.
+  The orchestration order is fixed in code (DECISIONS D2), so injected text can at most change the JSON
+  the model returns.
 - The returned JSON is hard-validated: closed vocabularies for every enumerated field, time-range checks,
   bounded text lengths, unknown keys rejected (`validation.py`). Category is derived from type.
 - Risk floors can only raise a level (D8). Injected "nothing to see here" cannot lower a level the model
@@ -52,16 +55,25 @@ are validated against a JSON schema and a maximum time window before execution.
   `uploads/<camera>/<timestamp>_<name>.<ext>`; path traversal characters are rejected. Overrides are limited
   to sampling parameters (no model id, no bucket, no prompt changes).
 - IAM: the runtime role can read `uploads/*` and `results/*`, write `results/*` and `frames/*`, invoke one
-  model (plus its inference profile), and read one SSM parameter. The Lambda role can only invoke the one
-  runtime. No `s3:*`, `bedrock:*` or IAM write permissions.
+  model (plus its inference profile), and read one SSM parameter. With the default `orchestrator=agentcore`
+  the Lambda role can only invoke the one runtime and send to its failure queue. **With
+  `orchestrator=lambda` the Lambda role additionally gets `bedrock:InvokeModel` (same model),
+  `s3:GetObject` on `uploads/*`, `s3:PutObject` on `results/*` and `frames/*`, and `ssm:GetParameter`**,
+  so a compromise of the Lambda then has the same data reach as the runtime. No `s3:*`, `bedrock:*` or IAM
+  write permissions in either mode.
 - **Gap:** there is no end-user authentication. Whoever holds IAM permission to call `InvokeAgentRuntime`
   can query any camera id in the bucket. Production needs an authorizer (for example JWT inbound auth on
   AgentCore Runtime) that binds camera ids to the authenticated user.
 
 ### 4. Data leakage
-- Logs contain identifiers, counts, enum values and timings only (`metrics.log_event` drops long strings;
-  unit test `test_logs_do_not_contain_content`). Summaries, descriptions, questions and frames are not
-  logged.
+- Logs contain identifiers, counts, enum values, error codes and timings only (`metrics.log_event` drops
+  strings over 200 characters). Validation failures are logged as field path plus JSON-schema keyword
+  (`schema: scene_type: enum`), never the rejected value (`validation._short`); model client errors as the
+  error code only. Unit tests `test_logs_do_not_contain_content`, `test_invalid_output_text_not_logged`
+  and `test_model_error_in_one_segment_gives_partial` cover the normal and failure paths. In the deployed
+  sandbox, `scripts/failure_drill_aws.py` forced an invalid output carrying a marker string and a model
+  error, then searched both log groups: 0 hits for the marker and for text from every stored result
+  (DEPLOYMENT-LOG.md). Summaries, descriptions, questions and frames are not logged.
 - Frames are not persisted by default; S3 lifecycle rules expire uploads, frames and results (D19).
 - No identity output: the schema has no name or face field; `subject` is a closed list of non-identity
   descriptors; identity-like phrases in free text are redacted (coarse regex guard). The Nova user guide
@@ -89,7 +101,11 @@ are validated against a JSON schema and a maximum time window before execution.
 
 ### 7. Denial of alerts (integrity)
 - Invalid model output does not silently become "no events": the result is marked `fallback` or
-  `partial` with `needs_review=true`.
+  `partial` with `needs_review=true`. The same applies when the model call itself fails (throttling,
+  access denied, timeouts) and when the upload cannot be decoded.
+- Internal failures (the runtime call raised, or S3/SSM errors) make the dispatcher invocation fail, so
+  the S3 event lands in the SQS on-failure queue instead of being dropped (async retries stay at 0).
+- High and emergency risk events always produce a notification, whatever custom watch rules are set.
 
 ## Residual risks
 

@@ -53,8 +53,28 @@ uv run python scripts/gen_synthetic.py --out sample-data/eval      # needs ffmpe
 uv run pytest
 uv run python scripts/run_local.py analyze --all --strategy video
 uv run python scripts/run_local.py ask "今天谁到过门口？" --now 2026-10-19T23:59:00Z
+uv run python scripts/run_local.py search "找出所有有人在门口停留超过1分钟的视频" --now 2026-10-19T23:59:00Z
+uv run python scripts/run_local.py daily --date 2026-10-19
 uv run python scripts/compare_strategies.py
 ```
+
+## What the add-on features cover (and what they do not)
+
+- **Search** is a keyword parser (Chinese, English, Russian) that turns a question into a structured
+  filter over stored events. It is not semantic or embedding search, and the `search` action never
+  calls a model, also with `model_mode=bedrock`. Only `ask` in `bedrock` mode uses Nova, with one
+  read-only `search_events` tool.
+- **Daily summary** is a deterministic aggregation of stored events (counts, abnormal hours, key
+  events, clips to review). No model writes it.
+- **Multiple languages**: zh-CN, en-US and ru-RU cover the templated headlines, the overview line
+  and the daily-summary text only. The model's free-text summary and descriptions stay in English.
+- **Watch rules** are one global, structured list in the pipeline configuration (location, subject,
+  type, level, local time window). They are not per user and not natural language. High and
+  emergency risk events always notify, whatever rules are set.
+- **Events are not merged across clips.** "Someone stayed at the door for more than 1 minute" only
+  matches an event that lasts that long inside one clip; the synthetic clips are 30-45 s, so that
+  demo query returns no events.
+- Results that hit a read cap are flagged `truncated: true` and the answer says so.
 
 ## Deploy (sandbox)
 
@@ -75,20 +95,25 @@ hand-over variant, which retains data by default). See
 Measured on the synthetic set only; real-world accuracy is not measured. Details are in
 [VERIFICATION.md](VERIFICATION.md).
 
-- 93 unit tests pass. cdk-nag (AwsSolutions) reports no unacknowledged findings.
-- Deployed end to end in us-east-1: S3 to Lambda to AgentCore Runtime to Nova 2 Lite to results.
-  PyAV runs on arm64 in both the runtime and the Lambda. Q&A, search and the daily summary work.
-  The stack was destroyed afterwards and leftovers were checked ([DEPLOYMENT-LOG.md](DEPLOYMENT-LOG.md)).
-- With real Nova 2 Lite, sampled frames with timestamps gave stable, valid output. Whole-clip video
-  input often missed required fields, and the validator routed those clips to `fallback`. No
-  strategy produced a false alarm on the no-event clips, including the one with injected text.
+- 154 unit tests pass. cdk-nag (AwsSolutions) reports no unacknowledged findings, also with another
+  resource prefix and model id.
+- Deployed end to end in us-east-1: S3 to Lambda to AgentCore Runtime to Nova 2 Lite to results
+  (16/16 clips, 0 fallback). PyAV runs on arm64 in both the runtime and the Lambda. Q&A, search and
+  the daily summary work. A failure drill confirmed that invalid model output and model errors end
+  as stored `fallback` results, that internal errors reach the failure queue, and that no picture
+  description reached the logs. The stack was destroyed and leftovers were checked
+  ([DEPLOYMENT-LOG.md](DEPLOYMENT-LOG.md)).
+- With real Nova 2 Lite (3 runs per configuration): frames every 2 s gave F1 0.518 ± 0.028 with
+  51 calls; every 4 s gave 0.536 ± 0.032 with 33 calls but found fewer event types and never reported
+  the 1.5 s fire. Whole-clip video input returned unusable output and every clip went to `fallback`.
+  No configuration raised a false alarm on the no-event clips, including the one with injected text.
 
 ## Before production
 
 - End-user authentication and per-user camera authorisation (for example, an inbound authorizer on
   the runtime).
 - Bind uploads to device identity.
-- Add a dead-letter queue, idempotency, and alarms on fallback and partial rates.
+- Add idempotency, a replay path for the failure queue, and alarms on fallback and partial rates.
 - Add rate limits and budget alarms.
 - Decide on KMS keys and VPC network mode.
 - Set the inference profile scope to match data residency.
@@ -102,7 +127,7 @@ The full list is in [docs/handover.md](docs/handover.md).
 ## Repository map
 
 `src/video_events/` core library · `src/agent/` AgentCore entrypoint · `src/functions/dispatcher/` Lambda ·
-`infra/` CDK (Python) · `scripts/` generator, evaluation, comparison, build, e2e, cleanup check ·
+`infra/` CDK (Python) · `scripts/` generator, evaluation, comparison, build, e2e, failure drill, cleanup check ·
 `tests/` · `sample-data/eval/manifest.json` labels (clips are generated).
 
 Governance documents: [DECISIONS.md](DECISIONS.md), [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md),

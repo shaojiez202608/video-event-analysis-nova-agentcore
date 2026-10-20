@@ -74,7 +74,10 @@ images sent, frames sampled, segments, rejected events, model latency and total 
   Nova guide describes its sampling). `frames` gives control over density and segment boundaries,
   which matters for short events and long clips. It costs more calls, and splitting a clip into
   segments can break context that spans segments, for example "the parcel was there at the start
-  and gone at the end". Measure both with `scripts/compare_strategies.py`.
+  and gone at the end". Measure both with `scripts/compare_strategies.py`. With the per-call
+  image cap (`max_images_per_call`, default 5), a call never sees more than 5 frames, so at 2 s
+  spacing "10 s segments" and "whole clip" send identical requests; the segment length only
+  matters when segment length / interval is below the cap.
 - **Validation over trust.** Prompt rules are repeated in code. The system never trusts an
   enumerated value, a time or a category that it has not checked.
 - **No database.** Results are JSON objects in S3, listed by camera and day. That is enough for a
@@ -88,6 +91,14 @@ images sent, frames sampled, segments, rejected events, model latency and total 
 - Event times from the model are estimates. With the `video` strategy their resolution depends on
   the model's own sampling.
 - No streaming ingest, no end-user authentication, and no rate limiting.
+- Each clip is analysed on its own. Events are merged across segments of one clip, never across
+  clips, so a query such as "someone stayed at the door for more than 1 minute" only finds events
+  that last that long inside one clip (the synthetic clips are 30-45 s, so it returns nothing).
+- Search is a keyword parser over stored fields, not semantic search; the `search` action never
+  calls a model, also in `bedrock` mode. Only `ask` in `bedrock` mode uses Nova (with one
+  read-only tool). The daily summary is a deterministic aggregation.
+- Watch rules are one global, structured list in the pipeline configuration, not per user and not
+  natural language. High and emergency risk events always notify.
 - The Q&A rule parser covers a fixed set of keywords in Chinese, English and Russian.
 - Localised text comes from templates. The free-text summary stays in English.
 
@@ -95,27 +106,29 @@ images sent, frames sampled, segments, rejected events, model latency and total 
 
 | # | Claim used in this repository | Source | Verified |
 |---|---|---|---|
-| F1 | In us-east-1, `amazon.nova-2-lite-v1:0` accepts TEXT, IMAGE and VIDEO input and is invoked through an inference profile. `us.amazon.nova-2-lite-v1:0` and `global.amazon.nova-2-lite-v1:0` profiles are ACTIVE. `amazon.nova-lite-v1:0` and `amazon.nova-pro-v1:0` also accept video. | `aws bedrock list-foundation-models --by-provider amazon` and `aws bedrock list-inference-profiles` in us-east-1; [Nova 2 code library](https://docs.aws.amazon.com/nova/latest/nova2-userguide/code-library.html) (uses `us.amazon.nova-2-lite-v1:0`) | 2026-10-20 |
+| F1 | In us-east-1, `amazon.nova-2-lite-v1:0` accepts TEXT, IMAGE and VIDEO input and is invoked through an inference profile. `us.amazon.nova-2-lite-v1:0` and `global.amazon.nova-2-lite-v1:0` profiles are ACTIVE. `amazon.nova-lite-v1:0` and `amazon.nova-pro-v1:0` also accept video. | [Bedrock model card: Nova 2 Lite](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-2-lite.html) (input modalities text, image, video; us-east-1 has no in-Region option, only Geo `us.amazon.nova-2-lite-v1:0` and Global profiles; US geo routes to us-east-1, us-east-2, us-west-2); [Models at a glance](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html); [Nova 2 code library](https://docs.aws.amazon.com/nova/latest/nova2-userguide/code-library.html). Cross-checked with `aws bedrock list-foundation-models` / `list-inference-profiles` | 2026-10-21 |
 | F2 | Nova accepts a video either embedded as bytes (Converse) or as an S3 URI, one video per request. The supported formats include MP4, MOV, MKV and WebM. Size limits differ by input method, so check the guide for the current values. | [Nova 2 multimodal understanding](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-multimodal-models.html); [Converse VideoSource](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_VideoSource.html) | 2026-10-20 |
 | F3 | Nova samples video frames itself at a rate that depends on clip length. Audio is not analysed. | [Nova 2 multimodal understanding](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-multimodal-models.html) | 2026-10-20 |
 | F4 | Embedded images per request are capped, with a higher cap for S3 URIs. Supported image formats include PNG, JPEG, GIF and WebP. The cap is a config value here (`max_images_per_call`); check the guide for the current number. | same page | 2026-10-20 |
 | F5 | Nova models do not identify or name people in images or video. | same page, "Key limitations" | 2026-10-20 |
 | F6 | The S3 location in Converse has `uri` and an optional `bucketOwner`. | [Nova 2 code library](https://docs.aws.amazon.com/nova/latest/nova2-userguide/code-library.html); [S3Location](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_S3Location.html) | 2026-10-20 |
 | F7 | AgentCore Runtime supports direct code deployment: a zip with arm64 dependencies uploaded to S3, with `codeConfiguration` (`code.s3.bucket/prefix`, `runtime`, `entryPoint`). The guide installs wheels with `uv pip install --python-platform aarch64-manylinux2014 --only-binary=:all:`. The runtime supports **only arm64**. The package has size limits. | [Direct code deployment for Python](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-get-started-code-deploy-python.html); [Direct code deployment overview](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-get-started-code-deploy.html) | 2026-10-20 |
-| F8 | CloudFormation type `AWS::BedrockAgentCore::Runtime` exists in us-east-1. It requires `AgentRuntimeName` (pattern `[a-zA-Z][a-zA-Z0-9_]{0,47}`), `AgentRuntimeArtifact` and `RoleArn`. Runtimes include `PYTHON_3_13`. Network modes are `PUBLIC` and `VPC`. It also has `AuthorizerConfiguration`, `EnvironmentVariables`, `LifecycleConfiguration` and `Tags`. | `aws cloudformation describe-type --type RESOURCE --type-name AWS::BedrockAgentCore::Runtime` (us-east-1) | 2026-10-20 |
+| F8 | CloudFormation type `AWS::BedrockAgentCore::Runtime` exists in us-east-1. It requires `AgentRuntimeName` (pattern `[a-zA-Z][a-zA-Z0-9_]{0,47}`), `AgentRuntimeArtifact` and `RoleArn`. Runtimes include `PYTHON_3_13`. Network modes are `PUBLIC` and `VPC`. It also has `AuthorizerConfiguration`, `EnvironmentVariables`, `LifecycleConfiguration` and `Tags`. | [CloudFormation reference: AWS::BedrockAgentCore::Runtime](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-bedrockagentcore-runtime.html) (required properties, name pattern, `AuthorizerConfiguration`, `LifecycleConfiguration`, `NetworkConfiguration`); runtime values checked with `aws cloudformation describe-type` in us-east-1 | 2026-10-21 |
 | F9 | The execution role trusts `bedrock-agentcore.amazonaws.com`, conditioned on `aws:SourceAccount` and `aws:SourceArn`. It needs CloudWatch Logs on `/aws/bedrock-agentcore/runtimes/*`, X-Ray, `cloudwatch:PutMetricData` (namespace `bedrock-agentcore`), workload access token actions, `bedrock:InvokeModel`, and S3 read of the code package. | [AgentCore Runtime permissions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-permissions.html); [code deploy guide](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-get-started-code-deploy-python.html) | 2026-10-20 |
 | F10 | Each AgentCore Runtime session runs in its own microVM, which is terminated after the session ends. Session ids must be at least 33 characters. Idle sessions stop after a configurable timeout. | [Use isolated sessions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-sessions.html) | 2026-10-20 |
 | F11 | The Lambda `python3.13` runtime runs on Amazon Linux 2023. All supported runtimes support arm64. AWS recommends bundling the SDK in the package instead of relying on the runtime-included version. | [Lambda runtimes](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html) | 2026-10-20 |
 | F12 | PyAV 19.0.1 on PyPI ships `manylinux_2_28_aarch64` wheels (BSD-3-Clause), so frame sampling needs no Docker build or separate ffmpeg binary. Import inside the deployed Lambda and AgentCore Runtime is checked by the `health` action (see VERIFICATION.md). | [PyPI: av](https://pypi.org/project/av/) | 2026-10-20 |
 | F14 | Nova supports `toolChoice` values `tool` (the specified tool is called once, recommended for structured output), `any` and `auto`. It uses constrained decoding against the tool's input schema. (In our runs this still did not guarantee that required fields were present, so the output is validated anyway.) | [Nova 2 using tools](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-tools.html) | 2026-10-20 |
-| F15 | `AWS::BedrockAgentCore::Runtime` `AuthorizerConfiguration` accepts a `CustomJWTAuthorizer`, which is the hardening path for end-user auth. | CloudFormation resource schema (describe-type, us-east-1) | 2026-10-20 |
+| F15 | `AWS::BedrockAgentCore::Runtime` `AuthorizerConfiguration` accepts a `CustomJWTAuthorizer`, which is the hardening path for end-user auth. | [CloudFormation reference: AuthorizerConfiguration](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-bedrockagentcore-runtime-authorizerconfiguration.html) | 2026-10-21 |
 | F16 | CloudWatch metrics cannot be deleted. They expire automatically when no new data arrives. | [CloudWatch metrics concepts](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html) | 2026-10-20 |
+| F17 | AgentCore creates the runtime log group `/aws/bedrock-agentcore/runtimes/<runtime id>-DEFAULT` itself while the runtime is created, with no retention. A CloudFormation `AWS::Logs::LogGroup` with that name fails with `AlreadyExists`. | Found in testing (deployment 2026-10-20, see DEPLOYMENT-LOG.md); [AgentCore observability](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-view.html) | 2026-10-21 |
+| F18 | A Lambda asynchronous invocation can send failed events to an on-failure destination (SQS, SNS, Lambda, EventBridge) after the retries are used up. | [Lambda: retaining records of asynchronous invocations](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-retain-records.html) | 2026-10-21 |
 | F13 | Converse tool use: `toolConfig.tools[].toolSpec` with a JSON `inputSchema`, `stopReason == "tool_use"`, results returned as `toolResult`. | [Nova 2 code library](https://docs.aws.amazon.com/nova/latest/nova2-userguide/code-library.html) ("Tool use") | 2026-10-20 |
 
 Removed because they could not be verified on official pages: none of the claims above. The
 repository says nothing about AgentCore Runtime availability in regions other than us-east-1. That
 is the region where the CloudFormation type was checked and the deployment ran. Two statements
-from the brief were checked by running them, not by reading docs: that PyAV works on arm64 Lambda
+from the requirements input were checked by running them, not by reading docs: that PyAV works on arm64 Lambda
 and on AgentCore Runtime (the `health` action in VERIFICATION/DEPLOYMENT-LOG), and the glibc
 version in both environments.
 

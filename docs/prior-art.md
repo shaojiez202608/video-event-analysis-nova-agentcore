@@ -46,5 +46,5 @@ does not claim "video to events with Nova" as new.
    watch rules, Q&A (mock or Nova with one read-only tool), search and daily summary. All of it
    runs in a small repository without a database or search cluster.
 
-Conclusion: the differentiators are clear and fall within the directions the project brief
+Conclusion: the differentiators are clear and fall within the directions the requirements input
 lists, so development continued.

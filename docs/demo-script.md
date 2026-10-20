@@ -32,15 +32,17 @@ About 15 minutes. Part A needs no AWS account. Part B needs a deployed stack.
    uv run python scripts/compare_strategies.py
    ```
    Explain the table: model calls and images sent against F1, temporal IoU and short-event recall.
-   With 10 s segments the per-call context is shorter, so events that need the whole clip
-   (delivery, theft, loitering) are missed. Sparse sampling (every 4 s) misses the 1.5 s fire in
-   `s12_short_fire`.
+   Each call carries at most `max_images_per_call` (5) frames, so even "whole clip" is split into
+   5-frame calls and no call sees the whole clip. That image cap, not the segment length, is why
+   events that need the whole clip (delivery, theft, loitering) are missed or cut into pieces; at
+   2 s spacing the 10 s and whole-clip rows are identical requests. Sparse sampling (every 4 s)
+   misses the 1.5 s fire in `s12_short_fire`.
 
 5. **Q&A, search and daily summary over the stored events:**
    ```bash
    uv run python scripts/run_local.py ask "今天谁到过门口？" --now 2026-10-19T23:59:00Z
    uv run python scripts/run_local.py ask "火情发生在几点？" --now 2026-10-19T23:59:00Z
-   uv run python scripts/run_local.py search "找出所有有人在门口停留超过1分钟的视频" --now 2026-10-19T23:59:00Z
+   uv run python scripts/run_local.py search "找出所有有人在门口停留超过1分钟的视频" --now 2026-10-19T23:59:00Z   # empty: no event in one clip lasts > 1 min
    uv run python scripts/run_local.py search "找宠物出现的片段" --now 2026-10-19T23:59:00Z
    uv run python scripts/run_local.py daily --date 2026-10-19
    ```

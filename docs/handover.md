@@ -26,10 +26,11 @@ with the data owner before any use beyond synthetic data.
 ## Measured behaviour (see VERIFICATION.md for the numbers)
 
 - On the synthetic set, sending sampled frames with timestamps (`strategy=frames`) gave valid,
-  scorable output from Nova 2 Lite. Sending the whole clip (`strategy=video`) often returned output
-  with missing required fields, which the validator turned into `fallback` results. This is why
-  the deployed default is `frames`. Re-measure on representative non-production footage before
-  choosing a strategy.
+  scorable output from Nova 2 Lite. Sending the whole clip (`strategy=video`) returned output with
+  missing required fields for every clip in three runs, which the validator turned into `fallback`
+  results. The deployed default is frames every 2 s (DECISIONS D5: same F1 as 4 s within run-to-run
+  spread, but more event types found and the short fire reported). Re-measure on representative
+  non-production footage before choosing a strategy.
 - Forced tool output (`output_mode=tool`) did not guarantee that nested required fields were
   present. The validator is still needed.
 
@@ -40,8 +41,10 @@ with the data owner before any use beyond synthetic data.
    remove direct IAM invocation by operators.
 2. **Upload identity.** Bind uploads to device identity (for example per-device credentials or
    presigned URLs issued by a backend) and stop deriving camera ids from object keys alone.
-3. **Retries and failure handling.** Add a DLQ or on-failure destination for the dispatcher. Make
-   analysis idempotent per object version, and alarm on `fallback` and `partial` rates.
+3. **Retries and failure handling.** The dispatcher already sends internal failures to an SQS
+   on-failure queue; add a replay procedure and an alarm on queue depth. Make analysis idempotent
+   per object version, and alarm on `fallback` and `partial` rates (`model_errors`,
+   `validation_failures` metrics).
 4. **Rate limits and budgets.** Set per-camera limits and budget alarms on model usage. Review
    service quotas for the expected volume (OPEN-QUESTIONS Q2).
 5. **Encryption keys.** Decide whether SSE-S3 is enough or whether customer-managed KMS keys are

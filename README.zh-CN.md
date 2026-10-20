@@ -19,8 +19,21 @@
 - **后处理**：
   - 多语言文案（中、英、俄）。
   - 结构化的自定义关注规则（「只关注门口人员」「夜间院子有人才提醒」）。
-  - 基于已存储事件的智能问答、语义检索和每日摘要。
+  - 基于已存储事件的智能问答、检索（关键字解析，不是语义检索）和每日摘要（确定性汇总）。覆盖边界见下文。
 - **mock 模式**：不依赖 AWS 也能跑通全流程。
+
+## 架构
+
+```
+S3 uploads/ ──事件──> Lambda (arm64) ──InvokeAgentRuntime──> AgentCore Runtime (arm64, zip)
+                                                                │  PyAV 抽帧
+                                                                │  Nova 2 Lite (Converse)
+                                                                │  校验 → 合并 → 后处理
+                                                                └─> S3 results/<camera>/<date>/<clip>.json
+运维 ──InvokeAgentRuntime──> ask / search / daily_summary（Nova + 一个只读工具）
+```
+
+图、取舍、局限和带日期的事实核对见 [docs/architecture.md](docs/architecture.md)。
 
 ## 快速开始（本地，无需 AWS）
 
@@ -34,6 +47,15 @@ uv run python scripts/run_local.py search "找出所有有人在门口停留超�
 uv run python scripts/run_local.py daily --date 2026-10-19
 uv run python scripts/compare_strategies.py
 ```
+
+## 补充功能的覆盖边界
+
+- **检索**是关键字解析器（中、英、俄），把问题转成对已存储事件的结构化过滤条件。它不是语义检索或向量检索；`search` 动作在 `model_mode=bedrock` 下也不调用模型。只有 bedrock 模式下的 `ask` 会调用 Nova，并且只开放一个只读工具 `search_events`。
+- **每日摘要**是对已存储事件的确定性汇总（计数、异常时段、重点事件、推荐回看片段），不由模型撰写。
+- **多语言**（zh-CN、en-US、ru-RU）只覆盖模板化的标题、概览行和每日摘要文本；模型输出的自由文本摘要和描述保持英文。
+- **关注规则**是流水线配置里的一份全局结构化列表（地点、主体、类型、等级、本地时段），不按用户区分，也不支持自然语言。`high` / `emergency` 风险事件无论规则如何都会通知。
+- **事件不跨片段合并**。「有人在门口停留超过 1 分钟」只能匹配单个片段内持续这么久的事件；合成片段只有 30–45 秒，所以这条演示查询返回空。
+- 结果触达读取上限时返回 `truncated: true`，回答里也会提示。
 
 ## 部署（沙箱）
 
@@ -50,15 +72,15 @@ npx -y aws-cdk@2 destroy -c params=config/params.json --force && ./scripts/verif
 
 只在合成集上测过，没有测真实场景的准确率，详见 [VERIFICATION.md](VERIFICATION.md)。
 
-- 93 个单元测试全部通过；cdk-nag（AwsSolutions）没有未确认的发现。
-- 已在 us-east-1 真实部署并跑通端到端：S3 → Lambda → AgentCore Runtime → Nova 2 Lite → 结果。Runtime 和 Lambda 中都核实了 arm64 下 PyAV 可用，问答、检索、每日摘要也都调用成功。验证完已销毁，并逐类核对了残留（[DEPLOYMENT-LOG.md](DEPLOYMENT-LOG.md)）。
-- 真实模型下，帧 + 时间戳输入的输出稳定。整段视频输入常缺必填字段，被校验层判为兜底。所有策略在无事件片段（含注入文字片段）上都没有误报。
+- 154 个单元测试全部通过；cdk-nag（AwsSolutions）没有未确认的发现，换资源前缀和模型 ID 后也一样。
+- 已在 us-east-1 真实部署并跑通端到端：S3 → Lambda → AgentCore Runtime → Nova 2 Lite → 结果（16/16 段，0 个 fallback）。Runtime 和 Lambda 中都核实了 arm64 下 PyAV 可用，问答、检索、每日摘要也都调用成功。故障演练确认：模型输出不合格与模型调用异常都会写入 `fallback` 结果，内部错误进入失败队列，日志里没有出现画面描述。验证完已销毁，并逐类核对了残留（[DEPLOYMENT-LOG.md](DEPLOYMENT-LOG.md)）。
+- 真实 Nova 2 Lite（每个配置 3 次）：每 2 秒抽帧 F1 0.518 ± 0.028，51 次调用；每 4 秒 F1 0.536 ± 0.032，33 次调用，但识别出的事件类型更少，且从未报出 1.5 秒的短火情。整段视频输入的输出不可用，全部片段走 `fallback`。所有配置在无事件片段（含注入文字片段）上都没有误报。
 
 ## 上生产前需要加固的清单
 
 - 终端用户认证与按用户的摄像头授权。
 - 上传与设备身份绑定。
-- DLQ、幂等，以及兜底率告警。
+- 幂等、失败队列的重放路径，以及兜底率告警。
 - 限流与预算告警。
 - 评估 KMS 和 VPC 模式。
 - 按数据驻留要求选择推理配置文件范围。
@@ -68,6 +90,16 @@ npx -y aws-cdk@2 destroy -c params=config/params.json --force && ./scripts/verif
 - 使用默认保留数据的参数文件。
 
 完整清单见 [docs/handover.md](docs/handover.md)。
+
+## 目录结构
+
+`src/video_events/` 核心库 · `src/agent/` AgentCore 入口 · `src/functions/dispatcher/` Lambda ·
+`infra/` CDK（Python） · `scripts/` 生成器、评测、策略对比、打包、端到端、故障演练、残留核对 ·
+`tests/` · `sample-data/eval/manifest.json` 标注（视频由脚本生成）。
+
+治理文档：[DECISIONS.md](DECISIONS.md)、[OPEN-QUESTIONS.md](OPEN-QUESTIONS.md)、
+[THREAT_MODEL.md](THREAT_MODEL.md)、[SECURITY-NOTES.md](SECURITY-NOTES.md)、[SECURITY.md](SECURITY.md)、
+[docs/prior-art.md](docs/prior-art.md)。
 
 ## 许可
 
