@@ -30,6 +30,8 @@ jobs:
       - run: make init
       - run: make lint
       - run: make test
+      - name: Generate synthetic evaluation clips (not committed)
+        run: make eval-data
       - name: Negative control must be reported as failing
         run: uv run python scripts/evaluate.py --mode mock --negative-control
 

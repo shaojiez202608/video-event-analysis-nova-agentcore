@@ -3,7 +3,7 @@
 PARAMS ?= config/params.json
 PY := uv run python
 
-.PHONY: help init preflight lint test synth deploy verify eval-mock eval-bedrock destroy verify-cleanup scan scan-ci
+.PHONY: eval-data help init preflight lint test synth deploy verify eval-mock eval-bedrock destroy verify-cleanup scan scan-ci
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/'
@@ -32,7 +32,10 @@ verify: ## End-to-end check, failure drill and resource-policy deny probe (paid:
 	$(PY) scripts/failure_drill_aws.py --params $(PARAMS) --report out/failure_drill.json
 	$(PY) scripts/deny_probe_aws.py --params $(PARAMS) --report out/deny_probe.json
 
-eval-mock: ## Evaluation and strategy comparison with the mock model (also runs the negative control)
+eval-data: ## Generate the synthetic evaluation clips (git-ignored) with Pillow and ffmpeg
+	$(PY) scripts/gen_synthetic.py
+
+eval-mock: eval-data ## Evaluation and strategy comparison with the mock model (also runs the negative control)
 	$(PY) scripts/evaluate.py --mode mock --strategy video
 	$(PY) scripts/evaluate.py --mode mock --negative-control
 	$(PY) scripts/compare_strategies.py
