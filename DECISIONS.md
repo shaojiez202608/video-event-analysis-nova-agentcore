@@ -35,7 +35,7 @@
 | D29 | AgentCore Runtime 日志组由服务在创建 Runtime 时自建；栈用 `AwsCustomResource` 在 Runtime 建好后设置保留期、销毁时删除 | 在栈里声明 `AWS::Logs::LogGroup`；部署后手工设置 | 实测声明同名 LogGroup 会因 `AlreadyExists` 部署失败（DEPLOYMENT-LOG）。自定义资源只获得该日志组的 `PutRetentionPolicy` / `DeleteLogGroup` 权限。 |
 | D30 | 抽帧在最后一个不完整区间的中点也采一帧（尾段短于 0.1 s 忽略） | `floor(时长/间隔)`（旧行为） | 旧算法在时长不是间隔整数倍时完全不看片段结尾（3.9 s / 2 s 只采 1.0 s 一帧）。 |
 | D31 | 每日摘要、检索与 S3 读取上限：结果超过 `max_objects`（500）或命中超过 `limit` 时返回 `truncated=true` 并在回答里提示 | 静默截断（旧行为） | 不完整的答案必须让用户知道。 |
-| D32 | LICENSE 为 MIT-0，版权行 `Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.`；git 作者仍为 `shaojiez <shaojiez@example.invalid>` | 个人版权行（审查修复轮的做法） | 规范对齐轮的统一决定（aws-samples 惯例）。 |
+| D32 | LICENSE 为 MIT-0，版权行 `Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.`；git 作者仍为 `shaojiez <shaojiez2026@gmail.com>` | 个人版权行（审查修复轮的做法） | 规范对齐轮的统一决定（aws-samples 惯例）。 |
 | D33 | 参数文件以模板入库（`config/params.example.json`、`config/params.customer.example.json`），真实文件 `config/params.json` 被 gitignore，由 `make init` 复制；synth 前校验全部参数与联动规则；账号 ID 只来自凭证环境，运维身份 ARN 只经 `-c operator_principal_arns` 传入 | 直接提交真实参数文件 | 防止真实配置与账号 ID 入库；非法值在创建任何资源之前失败。 |
 | D34 | Runtime 资源策略：只允许分发角色与部署时传入的运维身份调用，其余主体与所有 `*ForUser` 动作显式拒绝；媒体桶拒绝其他主体直接读写对象（`aws:ViaAWSService=false` 时） | 只靠身份策略 | 敏感资源再加一层「只允许预期调用方」。服务代表调用方访问（例如 Bedrock 按 S3 URI 读视频）按调用方身份评估，不被误拒。 |
 | D35 | Runtime 执行角色信任策略同时带 `aws:SourceAccount` 与收窄到 `runtime/<名称>-*` 的 `aws:SourceArn`；分发 Lambda 角色信任策略保持 Lambda 官方文档的写法（无条件键） | Lambda 角色也加条件键 | AgentCore 官方文档给出这两个条件键（账号级 `...:*`），本项目进一步收窄；Lambda 执行角色指南没有为执行角色给出这些条件键，贸然添加可能导致函数无法承担角色。理由与链接见 SECURITY-NOTES。 |
