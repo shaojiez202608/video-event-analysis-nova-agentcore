@@ -157,7 +157,7 @@ mock 模型是颜色规则检测器，只看传给它的帧，只对合成集有
 | zizmor 1.31.1 | `uvx zizmor .github/workflows`（默认与 `--persona=auditor`） | No findings |
 | osv-scanner 2.7.0 | `osv-scanner scan --lockfile uv.lock`；以及对 arm64 部署包 26 个包的版本清单 | No issues found（两者） |
 | ASH v3.7.1（local 模式，干净克隆，输出在项目外 `_scan_out/video_analysis/`） | 见 7.3 | 见 7.3 |
-| CI workflow | — | **未在 GitHub 运行，仅本地等效执行**（上表各项） |
+| CI workflow | — | 已在 GitHub 运行，见下文「GitHub CI」 |
 
 ### 7.2 部署环境（us-east-1）
 
@@ -189,3 +189,11 @@ ASH v3.7.1，`--mode local`，对干净克隆运行（克隆中没有 .venv、bu
 | cdk-nag、cfn-nag、grype、opengrep、syft | **MISSING（未运行）** | 本机无 Docker / 未安装，按维护者约定不在本机补装，交给 CI 补跑。按规范，扫描器没跑完视为**未通过**。cdk-nag 已由项目自身的 `make synth` 运行（第 7.1 节） |
 
 结论：ASH 在本机**未完整通过**（5 个扫描器未运行）；已运行的 5 个扫描器全部通过。
+
+## GitHub CI（2026-10-21）
+
+仓库推送到 GitHub（私有）后，`ci` workflow 在 GitHub 托管 runner（ubuntu-24.04）上运行：run 39526100907，提交 `bdf4df5`，全部 job 通过（Lint, unit tests, negative control；cdk synth + cdk-nag；Secret scan (canary + full history)；ASH）。
+
+ASH v3.7.1 容器模式（基础镜像改用 Docker Hub 上的同名镜像，见 `ash` job）：10/10 个扫描器通过，0 失败，0 缺失；发现共 231 条，可处理 0 条，抑制 0 条。这一结果取代上文本地不完整的 ASH 记录（本机无 Docker，缺 5 个扫描器）。
+
+这不能证明：部署验证 workflow 未在 GitHub 运行（需要目标账号里的 OIDC 角色和带审批人的 environment）。
