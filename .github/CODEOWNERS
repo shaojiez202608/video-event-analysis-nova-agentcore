@@ -1,10 +1,9 @@
 # Changes to CI, scanning configuration and AI-assistant configuration need the maintainer's review.
-# <MAINTAINER_GITHUB_HANDLE> is a placeholder (OPEN-QUESTIONS Q14).
-/.github/                @<MAINTAINER_GITHUB_HANDLE>
-/.gitleaks.toml          @<MAINTAINER_GITHUB_HANDLE>
-/Makefile                @<MAINTAINER_GITHUB_HANDLE>
-/AGENTS.md               @<MAINTAINER_GITHUB_HANDLE>
-/CLAUDE.md               @<MAINTAINER_GITHUB_HANDLE>
-/infra/                  @<MAINTAINER_GITHUB_HANDLE>
-/scripts/cleanup.sh      @<MAINTAINER_GITHUB_HANDLE>
-/scripts/secret_canary.sh @<MAINTAINER_GITHUB_HANDLE>
+/.github/                @shaojiez202608
+/.gitleaks.toml          @shaojiez202608
+/Makefile                @shaojiez202608
+/AGENTS.md               @shaojiez202608
+/CLAUDE.md               @shaojiez202608
+/infra/                  @shaojiez202608
+/scripts/cleanup.sh      @shaojiez202608
+/scripts/secret_canary.sh @shaojiez202608
