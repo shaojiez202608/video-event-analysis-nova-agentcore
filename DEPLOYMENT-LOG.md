@@ -96,7 +96,7 @@
 | 项 | 值 |
 |---|---|
 | 区域 | us-east-1（只用了这一个区域） |
-| 代码版本 | 部署与验证：`0f804cc`（feat(ops): add a resource-policy deny probe and record the earlier template key）；销毁时的清理脚本：工作区为 `02dbc62` 之前的修改（保存已部署资产清单），已提交为 `02dbc62` |
+| 代码版本 | 部署与验证：`da3ffcd`（feat(ops): add a resource-policy deny probe and record the earlier template key）；销毁时的清理脚本：工作区为 `04013dc` 之前的修改（保存已部署资产清单），已提交为 `04013dc` |
 | 参数文件 | `config/params.json` = `config/params.example.json` 原样复制；运维身份由 `scripts/deploy.sh` 从当前调用者推导并以 `-c operator_principal_arns` 传入（IAM 用户 ARN，未写入任何文件） |
 | 命令 | `CONFIRM_ACCOUNT=<末 4 位> make deploy` → `ALLOW_PAID=1 make verify` → 破坏性变更保护演示（只 diff）→ `ALLOW_PAID=1 uv run python scripts/evaluate.py --mode bedrock` → `CONFIRM_STACK=… CONFIRM_DATA=yes make destroy` → `make verify-cleanup` |
 

@@ -5,7 +5,7 @@
 | 轮次 | 日期（UTC） | 区域 | 代码版本（提交） | 配置 |
 |---|---|---|---|---|
 | 审查修复轮（第 1–6 节） | 2026-10-20 至 2026-10-21 | us-east-1 | `f429eea`（fix(infra): set the runtime log group retention with a custom resource；历史重写后的哈希） | `config/params.json`（现为 `params.example.json`），frames 2 s / 10 s，`us.amazon.nova-2-lite-v1:0` |
-| 规范对齐轮（第 7 节） | 2026-10-20 | us-east-1 | 部署与验证：`0f804cc`；之后只改了运维脚本（`02dbc62`）和文档 | `config/params.example.json` 原样复制，同上 |
+| 规范对齐轮（第 7 节） | 2026-10-20 | us-east-1 | 部署与验证：`da3ffcd`；之后只改了运维脚本（`04013dc`）和文档 | `config/params.example.json` 原样复制，同上 |
 
 ## 1. 单元测试与静态检查（mock，不依赖 AWS）
 
@@ -142,7 +142,7 @@ mock 模型是颜色规则检测器，只看传给它的帧，只对合成集有
 - 真实摄像头画面上的准确率：没有测，也不应在本仓库中测。
 
 
-## 7. 规范对齐轮验证（2026-10-20，部署提交 `0f804cc`）
+## 7. 规范对齐轮验证（2026-10-20，部署提交 `da3ffcd`）
 
 ### 7.1 本地
 
@@ -178,7 +178,7 @@ mock 模型是颜色规则检测器，只看传给它的帧，只对合成集有
 
 ### 7.3 ASH
 
-ASH v3.7.1，`--mode local`，对干净克隆运行（克隆中没有 .venv、build、cdk.out 或生成的视频），输出在项目外 `_scan_out/video_analysis/ash-v4/`。第一次运行（提交 `02dbc62`）semgrep 报 1 条：`uv-missing-dependency-cooldown`。修复：`[tool.uv]` 加 `exclude-newer = "7 days"`（`0840f2a`），并放在表的第一行，因为规则只读到第一个 `[` 为止（`efa0c5b`）。在 `efa0c5b` 上重跑：
+ASH v3.7.1，`--mode local`，对干净克隆运行（克隆中没有 .venv、build、cdk.out 或生成的视频），输出在项目外 `_scan_out/video_analysis/ash-v4/`。第一次运行（提交 `04013dc`）semgrep 报 1 条：`uv-missing-dependency-cooldown`。修复：`[tool.uv]` 加 `exclude-newer = "7 days"`（`42f2492`），并放在表的第一行，因为规则只读到第一个 `[` 为止（`0e23ed6`）。在 `0e23ed6` 上重跑：
 
 | 扫描器 | 结果 | 说明 |
 |---|---|---|
