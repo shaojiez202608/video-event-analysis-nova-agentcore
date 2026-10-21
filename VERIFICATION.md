@@ -129,7 +129,6 @@ mock 模型是颜色规则检测器，只看传给它的帧，只对合成集有
 | gitleaks 8.30.1 | `gitleaks git .`（全部历史） | 历史重写后复扫：27 个提交，no leaks found（规范对齐轮复扫见第 7 节） |
 | 人工检查 | grep 12 位数字、个人与客户名称、内部路径 | 无发现 |
 | ASH v3.7.1 | 早期记录：bandit 1 Medium（已修复）；cdk-nag、cfn-nag、checkov、grype、opengrep、semgrep、syft 未运行（本机缺少依赖） | 未完整运行，视为未通过 |
-| Holmes | — | **未运行**：本机没有 Holmes |
 
 历史重写（git filter-repo，审查修复轮结束时做一次）：把历史中的旧前缀替换为 `proto-video` / `proto_video`，统一作者与提交者，把提交主题改写为 Conventional Commits（正文保留）。验证：用 `git log --all -p` 对旧前缀关键字（独立词及带 `-`/`_` 的前缀形式，不区分大小写）和本机绝对路径做正则检索，结果为空；`git log --format='%an <%ae>|%cn <%ce>' | sort -u` 只有一行 `shaojiez <shaojiez2026@gmail.com>|shaojiez <shaojiez2026@gmail.com>`；历史中没有媒体文件（最大的 blob 是 uv.lock，142 KB；无 mp4/mov/jpg/png/zip）。
 
